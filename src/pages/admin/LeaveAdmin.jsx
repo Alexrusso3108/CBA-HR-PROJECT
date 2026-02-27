@@ -1,73 +1,93 @@
 import { useState } from 'react';
-import { Plus, Trash2, Edit2, CalendarDays } from 'lucide-react';
+import { Plus, Trash2, Edit2 } from 'lucide-react';
 import Layout from '../../components/Layout';
 import Modal from '../../components/Modal';
 import Badge from '../../components/Badge';
 import Avatar from '../../components/Avatar';
-import { getEmployees, getLeaveApplications, getLeaveBalance, setLeaveBalance, addHoliday, removeHoliday, getHolidays } from '../../store/dataStore';
+import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../context/AuthContext';
+import { useCompanyData } from '../../hooks/useCompanyData';
 
 const LEAVE_TYPES = ['CL', 'SL', 'PL'];
 const LEAVE_LABELS = { CL: 'Casual', SL: 'Sick', PL: 'Paid' };
 
 export default function LeaveAdmin() {
+  const { user } = useAuth();
+  const { employees, leaveBalances, leaveApplications, holidays, loading, reload } = useCompanyData();
+
   const [tab, setTab] = useState('balances');
   const [alert, setAlert] = useState(null);
-  const [refresh, setRefresh] = useState(0);
   const [editingBalance, setEditingBalance] = useState(null);
   const [balanceForm, setBalanceForm] = useState({ CL: 0, SL: 0, PL: 0 });
   const [showHolidayModal, setShowHolidayModal] = useState(false);
   const [holidayForm, setHolidayForm] = useState({ name: '', date: '', type: 'national' });
+  const [saving, setSaving] = useState(false);
 
-  const employees = getEmployees().filter(e => e.status === 'active');
-  const allLeaves = getLeaveApplications({});
-  const holidays = getHolidays();
+  const activeEmps = employees.filter(e => e.status === 'active');
 
   function showAlert(type, msg) { setAlert({ type, msg }); setTimeout(() => setAlert(null), 3500); }
 
   function openEditBalance(emp) {
-    const bal = getLeaveBalance(emp.id);
+    const bal = leaveBalances[emp.id] || { CL: 12, SL: 10, PL: 15 };
     setEditingBalance(emp);
-    setBalanceForm({ ...bal });
+    setBalanceForm({ CL: bal.CL, SL: bal.SL, PL: bal.PL });
   }
 
-  function saveBalance() {
-    setLeaveBalance(editingBalance.id, {
-      CL: Number(balanceForm.CL),
-      SL: Number(balanceForm.SL),
-      PL: Number(balanceForm.PL),
-    });
-    setEditingBalance(null);
-    setRefresh(r => r + 1);
-    showAlert('success', `Leave balance updated for ${editingBalance.name}`);
+  async function saveBalance() {
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from('leave_balances')
+        .update({ cl: Number(balanceForm.CL), sl: Number(balanceForm.SL), pl: Number(balanceForm.PL) })
+        .eq('employee_id', editingBalance.id)
+        .eq('company_id', user.company_id);
+      if (error) throw error;
+      showAlert('success', `Leave balance updated for ${editingBalance.name}`);
+      setEditingBalance(null);
+      reload();
+    } catch (err) {
+      showAlert('error', err?.message || 'Failed to update balance.');
+    } finally {
+      setSaving(false);
+    }
   }
 
-  function handleAddHoliday() {
+  async function handleAddHoliday() {
     if (!holidayForm.name || !holidayForm.date) { showAlert('error', 'Name and date are required.'); return; }
-    addHoliday(holidayForm);
-    setHolidayForm({ name: '', date: '', type: 'national' });
-    setShowHolidayModal(false);
-    setRefresh(r => r + 1);
-    showAlert('success', 'Holiday added!');
+    setSaving(true);
+    try {
+      const { error } = await supabase.from('holidays').insert({
+        company_id: user.company_id,
+        name: holidayForm.name,
+        date: holidayForm.date,
+        type: holidayForm.type,
+      });
+      if (error) throw error;
+      setHolidayForm({ name: '', date: '', type: 'national' });
+      setShowHolidayModal(false);
+      showAlert('success', 'Holiday added!');
+      reload();
+    } catch (err) {
+      showAlert('error', err?.message || 'Failed to add holiday.');
+    } finally {
+      setSaving(false);
+    }
   }
 
-  function handleDeleteHoliday(id) {
+  async function handleDeleteHoliday(id) {
     if (!window.confirm('Remove this holiday?')) return;
-    removeHoliday(id);
-    setRefresh(r => r + 1);
-    showAlert('info', 'Holiday removed.');
+    try {
+      const { error } = await supabase.from('holidays').delete().eq('id', id).eq('company_id', user.company_id);
+      if (error) throw error;
+      showAlert('info', 'Holiday removed.');
+      reload();
+    } catch (err) {
+      showAlert('error', err?.message || 'Failed to remove holiday.');
+    }
   }
 
-  // Stats
-  const totalPending = allLeaves.filter(l => l.status === 'pending').length;
-  const totalApproved = allLeaves.filter(l => l.status === 'approved').length;
-
-  // Department-wise leave breakdown
-  const deptLeaveStats = employees.reduce((acc, emp) => {
-    const deptId = emp.departmentId;
-    const empLeaves = allLeaves.filter(l => l.employeeId === emp.id && l.status === 'approved').length;
-    acc[deptId] = (acc[deptId] || 0) + empLeaves;
-    return acc;
-  }, {});
+  const totalPending = leaveApplications.filter(l => l.status === 'pending').length;
+  const totalApproved = leaveApplications.filter(l => l.status === 'approved').length;
 
   return (
     <Layout title="Leave Administration">
@@ -87,7 +107,7 @@ export default function LeaveAdmin() {
       {/* Stats */}
       <div className="grid-4" style={{ marginBottom: 24 }}>
         {[
-          { label: 'Total Applications', val: allLeaves.length, color: '#6c63ff' },
+          { label: 'Total Applications', val: leaveApplications.length, color: '#6c63ff' },
           { label: 'Pending Review', val: totalPending, color: '#f6ad55' },
           { label: 'Approved This Year', val: totalApproved, color: '#38ef7d' },
           { label: 'Company Holidays', val: holidays.length, color: '#38b2ac' },
@@ -109,38 +129,42 @@ export default function LeaveAdmin() {
       {tab === 'balances' && (
         <div className="card">
           <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-1)', marginBottom: 16 }}>Employee Leave Balances</div>
-          <div className="table-wrap">
-            <table className="data-table">
-              <thead><tr><th>Employee</th><th>ID</th><th>Casual (CL)</th><th>Sick (SL)</th><th>Paid (PL)</th><th>Action</th></tr></thead>
-              <tbody>
-                {employees.map(emp => {
-                  const bal = getLeaveBalance(emp.id);
-                  return (
-                    <tr key={emp.id}>
-                      <td>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <Avatar name={emp.name} size="sm" />
-                          <div>
-                            <div style={{ fontWeight: 600, color: 'var(--text-1)' }}>{emp.name}</div>
-                            <div style={{ fontSize: 11.5, color: 'var(--text-3)' }}>{emp.email}</div>
+          {loading ? (
+            <div className="empty-state" style={{ padding: 32 }}><p>Loading…</p></div>
+          ) : (
+            <div className="table-wrap">
+              <table className="data-table">
+                <thead><tr><th>Employee</th><th>ID</th><th>Casual (CL)</th><th>Sick (SL)</th><th>Paid (PL)</th><th>Action</th></tr></thead>
+                <tbody>
+                  {activeEmps.map(emp => {
+                    const bal = leaveBalances[emp.id] || { CL: 0, SL: 0, PL: 0 };
+                    return (
+                      <tr key={emp.id}>
+                        <td>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <Avatar name={emp.name} size="sm" />
+                            <div>
+                              <div style={{ fontWeight: 600, color: 'var(--text-1)' }}>{emp.name}</div>
+                              <div style={{ fontSize: 11.5, color: 'var(--text-3)' }}>{emp.email}</div>
+                            </div>
                           </div>
-                        </div>
-                      </td>
-                      <td style={{ fontFamily: 'monospace', color: 'var(--accent-light)' }}>{emp.id}</td>
-                      <td><span style={{ fontWeight: 700, fontSize: 16, color: '#6c63ff' }}>{bal.CL}</span></td>
-                      <td><span style={{ fontWeight: 700, fontSize: 16, color: '#38b2ac' }}>{bal.SL}</span></td>
-                      <td><span style={{ fontWeight: 700, fontSize: 16, color: '#f6ad55' }}>{bal.PL}</span></td>
-                      <td>
-                        <button className="btn btn-secondary btn-sm" onClick={() => openEditBalance(emp)}>
-                          <Edit2 size={12} /> Adjust
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                        </td>
+                        <td style={{ fontFamily: 'monospace', color: 'var(--accent-light)' }}>{emp.employeeCode}</td>
+                        <td><span style={{ fontWeight: 700, fontSize: 16, color: '#6c63ff' }}>{bal.CL}</span></td>
+                        <td><span style={{ fontWeight: 700, fontSize: 16, color: '#38b2ac' }}>{bal.SL}</span></td>
+                        <td><span style={{ fontWeight: 700, fontSize: 16, color: '#f6ad55' }}>{bal.PL}</span></td>
+                        <td>
+                          <button className="btn btn-secondary btn-sm" onClick={() => openEditBalance(emp)}>
+                            <Edit2 size={12} /> Adjust
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
@@ -152,10 +176,10 @@ export default function LeaveAdmin() {
             <table className="data-table">
               <thead><tr><th>Employee</th><th>Type</th><th>From</th><th>To</th><th>Reason</th><th>Status</th><th>Applied On</th></tr></thead>
               <tbody>
-                {allLeaves.length === 0 ? (
+                {leaveApplications.length === 0 ? (
                   <tr><td colSpan={7}><div className="empty-state" style={{ padding: 24 }}><p>No leave applications</p></div></td></tr>
                 ) : (
-                  allLeaves.map(a => {
+                  leaveApplications.map(a => {
                     const emp = employees.find(e => e.id === a.employeeId);
                     return (
                       <tr key={a.id}>
@@ -163,8 +187,8 @@ export default function LeaveAdmin() {
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <Avatar name={emp?.name || '?'} size="sm" />
                             <div>
-                              <div style={{ fontWeight: 600, color: 'var(--text-1)', fontSize: 13 }}>{emp?.name || a.employeeId}</div>
-                              <div style={{ fontSize: 11, color: 'var(--text-3)' }}>{a.employeeId}</div>
+                              <div style={{ fontWeight: 600, color: 'var(--text-1)', fontSize: 13 }}>{emp?.name || '—'}</div>
+                              <div style={{ fontSize: 11, color: 'var(--text-3)' }}>{emp?.employeeCode}</div>
                             </div>
                           </div>
                         </td>
@@ -220,7 +244,7 @@ export default function LeaveAdmin() {
         footer={
           <>
             <button className="btn btn-secondary" onClick={() => setEditingBalance(null)}>Cancel</button>
-            <button className="btn btn-primary" onClick={saveBalance}>Save Balance</button>
+            <button className="btn btn-primary" onClick={saveBalance} disabled={saving}>Save Balance</button>
           </>
         }
       >
@@ -239,7 +263,7 @@ export default function LeaveAdmin() {
         footer={
           <>
             <button className="btn btn-secondary" onClick={() => setShowHolidayModal(false)}>Cancel</button>
-            <button className="btn btn-primary" onClick={handleAddHoliday}>Add Holiday</button>
+            <button className="btn btn-primary" onClick={handleAddHoliday} disabled={saving}>Add Holiday</button>
           </>
         }
       >

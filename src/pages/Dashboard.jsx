@@ -1,25 +1,47 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CalendarDays, Target, FileText, Users, ArrowRight, CheckCircle2, Clock, XCircle, TrendingUp, Award, Megaphone } from 'lucide-react';
 import Layout from '../components/Layout';
 import Avatar from '../components/Avatar';
 import Badge from '../components/Badge';
 import { useAuth } from '../context/AuthContext';
-import {
-  getLeaveBalance, getLeaveApplications, getGoals, getAnnouncements,
-  getEmployees, getPerformanceReviews
-} from '../store/dataStore';
+import { supabase } from '../lib/supabase';
+import { useCompanyData } from '../hooks/useCompanyData';
 
 export default function Dashboard() {
   const { user } = useAuth();
   const nav = useNavigate();
 
-  const bal = getLeaveBalance(user.id);
-  const myLeaves = getLeaveApplications({ employeeId: user.id });
-  const myGoals = getGoals({ employeeId: user.id });
-  const myReviews = getPerformanceReviews({ employeeId: user.id });
-  const announcements = getAnnouncements().slice(0, 3);
-  const employees = getEmployees().filter(e => e.status === 'active');
+  // Supabase data
+  const [bal, setBal] = useState({ CL: 0, SL: 0, PL: 0 });
+  const [myLeaves, setMyLeaves] = useState([]);
+  const [announcements, setAnnouncements] = useState([]);
+
+  // Company-wide (for birthdays/anniversaries/directory)
+  const { employees: allEmployees, loading } = useCompanyData();
+  const employees = allEmployees.filter(e => e.status === 'active');
+
+  // Goals & reviews (local stub — will be empty for new employees)
+  const myGoals = [];
+  const myReviews = [];
+
+  const fetchMyData = useCallback(async () => {
+    if (!user?.id || !user?.company_id) return;
+    try {
+      const [balRes, leavesRes, annRes] = await Promise.all([
+        supabase.from('leave_balances').select('*').eq('employee_id', user.id).eq('company_id', user.company_id).single(),
+        supabase.from('leave_applications').select('*').eq('employee_id', user.id).eq('company_id', user.company_id).order('applied_on', { ascending: false }),
+        supabase.from('announcements').select('*').eq('company_id', user.company_id).order('created_at', { ascending: false }).limit(3),
+      ]);
+      if (balRes.data) setBal({ CL: balRes.data.cl ?? 0, SL: balRes.data.sl ?? 0, PL: balRes.data.pl ?? 0 });
+      setMyLeaves((leavesRes.data || []).map(l => ({ id: l.id, type: l.type, fromDate: l.from_date, toDate: l.to_date, status: l.status, appliedOn: l.applied_on })));
+      setAnnouncements(annRes.data || []);
+    } catch (err) {
+      console.error('Dashboard fetchMyData error:', err);
+    }
+  }, [user?.id, user?.company_id]);
+
+  useEffect(() => { fetchMyData(); }, [fetchMyData]);
 
   const today = new Date();
   const todayStr = today.toISOString().split('T')[0];
@@ -75,7 +97,7 @@ export default function Dashboard() {
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 12.5, fontWeight: 500, opacity: 0.8, marginBottom: 4, letterSpacing: 0.2 }}>{greeting()}</div>
           <div style={{ fontSize: 22, fontWeight: 800, marginBottom: 3 }}>{user.name}</div>
-          <div style={{ fontSize: 13, opacity: 0.7, fontWeight: 400 }}>{user.id} &nbsp;·&nbsp; {user.role.charAt(0).toUpperCase() + user.role.slice(1)}</div>
+          <div style={{ fontSize: 13, opacity: 0.7, fontWeight: 400 }}>{user.employeeCode || user.id} &nbsp;·&nbsp; {user.role.charAt(0).toUpperCase() + user.role.slice(1)}</div>
         </div>
         {onLeave && (
           <div style={{ padding: '7px 16px', background: 'rgba(255,255,255,0.18)', borderRadius: 8, fontSize: 12.5, fontWeight: 600, border: '1px solid rgba(255,255,255,0.25)', backdropFilter: 'blur(8px)' }}>

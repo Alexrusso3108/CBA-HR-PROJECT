@@ -1,13 +1,13 @@
 import { useMemo, useState } from 'react';
 import { Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
 import Layout from '../components/Layout';
-import { getHolidays } from '../store/dataStore';
+import { useCompanyData } from '../hooks/useCompanyData';
 
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 export default function Holidays() {
-  const holidays = getHolidays();
+  const { holidays } = useCompanyData();
   const today = new Date();
   const [viewYear, setViewYear] = useState(today.getFullYear());
   const [tab, setTab] = useState('list');

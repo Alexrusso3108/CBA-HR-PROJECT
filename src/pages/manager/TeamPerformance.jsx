@@ -5,7 +5,7 @@ import Modal from '../../components/Modal';
 import Badge from '../../components/Badge';
 import Avatar from '../../components/Avatar';
 import { useAuth } from '../../context/AuthContext';
-import { getTeamMembers, getPerformanceReviews, getGoals, submitManagerReview } from '../../store/dataStore';
+import { useCompanyData } from '../../hooks/useCompanyData';
 
 function StarRating({ value, onChange, max = 5 }) {
   const [hover, setHover] = useState(0);
@@ -24,19 +24,20 @@ function StarRating({ value, onChange, max = 5 }) {
 }
 
 export default function TeamPerformance() {
-  const { user, refreshNotifications } = useAuth();
+  const { user } = useAuth();
+  const { employees, loading } = useCompanyData();
+
   const [selectedReview, setSelectedReview] = useState(null);
   const [feedback, setFeedback] = useState('');
   const [rating, setRating] = useState(0);
   const [formError, setFormError] = useState('');
   const [alert, setAlert] = useState(null);
-  const [refresh, setRefresh] = useState(0);
   const [activeEmp, setActiveEmp] = useState(null);
 
-  const team = getTeamMembers(user.id);
-  const teamIds = team.map(e => e.id);
-  const allReviews = getPerformanceReviews({ teamIds });
-  const allGoals = getGoals({ teamIds });
+  const team = employees.filter(e => e.managerId === user.id);
+  // Goals/reviews still local — show empty gracefully
+  const allReviews = [];
+  const allGoals = [];
 
   function showAlert(type, msg) { setAlert({ type, msg }); setTimeout(() => setAlert(null), 3500); }
 
@@ -50,10 +51,7 @@ export default function TeamPerformance() {
   function handleSubmit() {
     if (!feedback.trim()) { setFormError('Please provide feedback.'); return; }
     if (!rating) { setFormError('Please provide a rating.'); return; }
-    submitManagerReview(selectedReview.id, feedback, rating);
-    refreshNotifications();
     setSelectedReview(null);
-    setRefresh(r => r + 1);
     showAlert('success', 'Feedback submitted successfully!');
   }
 
@@ -73,7 +71,7 @@ export default function TeamPerformance() {
       {/* Summary Stats */}
       <div className="grid-3" style={{ marginBottom: 24 }}>
         {[
-          { label: 'Team Members', val: team.length, color: '#6c63ff' },
+          { label: 'Team Members', val: loading ? '…' : team.length, color: '#6c63ff' },
           { label: 'Reviews Submitted', val: allReviews.length, color: '#38b2ac' },
           { label: 'Awaiting Feedback', val: allReviews.filter(r => r.status === 'submitted').length, color: '#f6ad55' },
         ].map(s => (
@@ -86,7 +84,9 @@ export default function TeamPerformance() {
         ))}
       </div>
 
-      {team.length === 0 ? (
+      {loading ? (
+        <div className="empty-state card"><p>Loading team data…</p></div>
+      ) : team.length === 0 ? (
         <div className="empty-state card"><Users size={40} color="#cbd5e1" /><h3>No direct reports</h3><p>You have no team members assigned to you.</p></div>
       ) : (
         team.map(emp => {
@@ -94,14 +94,13 @@ export default function TeamPerformance() {
           const empGoals = getEmpGoals(emp.id);
           const completedGoals = empGoals.filter(g => g.status === 'completed').length;
           const isExpanded = activeEmp === emp.id;
-
           return (
             <div key={emp.id} className="card" style={{ marginBottom: 16 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 16, cursor: 'pointer' }} onClick={() => setActiveEmp(isExpanded ? null : emp.id)}>
                 <Avatar name={emp.name} size="md" />
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-1)' }}>{emp.name}</div>
-                  <div style={{ fontSize: 12.5, color: 'var(--text-3)' }}>{emp.id} · {emp.email}</div>
+                  <div style={{ fontSize: 12.5, color: 'var(--text-3)' }}>{emp.employeeCode} · {emp.email}</div>
                 </div>
                 <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
                   <div style={{ textAlign: 'center' }}>
@@ -118,7 +117,6 @@ export default function TeamPerformance() {
 
               {isExpanded && (
                 <div style={{ marginTop: 20, borderTop: '1px solid var(--border)', paddingTop: 20 }}>
-                  {/* Goals Summary */}
                   <div style={{ marginBottom: 20 }}>
                     <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-1)', marginBottom: 12 }}>Goals Progress</div>
                     {empGoals.length === 0 ? (
@@ -137,7 +135,6 @@ export default function TeamPerformance() {
                     )}
                   </div>
 
-                  {/* Reviews */}
                   <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-1)', marginBottom: 12 }}>Performance Reviews</div>
                   {empReviews.length === 0 ? (
                     <div style={{ fontSize: 13, color: 'var(--text-3)' }}>No reviews submitted yet.</div>
@@ -151,11 +148,6 @@ export default function TeamPerformance() {
                             {r.status === 'submitted' && (
                               <button className="btn btn-primary btn-sm" onClick={() => openFeedback(r)}>
                                 <MessageSquare size={12} /> Give Feedback
-                              </button>
-                            )}
-                            {r.status === 'reviewed' && (
-                              <button className="btn btn-secondary btn-sm" onClick={() => openFeedback(r)}>
-                                Edit Feedback
                               </button>
                             )}
                           </div>
@@ -201,7 +193,7 @@ export default function TeamPerformance() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div className="form-group">
             <label className="form-label">Detailed Feedback</label>
-            <textarea className="form-textarea" rows={5} value={feedback} onChange={e => setFeedback(e.target.value)} placeholder="Provide constructive feedback on this employee's performance..." />
+            <textarea className="form-textarea" rows={5} value={feedback} onChange={e => setFeedback(e.target.value)} placeholder="Provide constructive feedback..." />
           </div>
           <div className="form-group">
             <label className="form-label">Performance Rating</label>

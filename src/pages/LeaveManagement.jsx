@@ -1,71 +1,161 @@
-import { useState, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Plus, CalendarDays, X, AlertCircle } from 'lucide-react';
 import Layout from '../components/Layout';
 import Modal from '../components/Modal';
 import Badge from '../components/Badge';
 import { useAuth } from '../context/AuthContext';
-import {
-  getLeaveBalance, getLeaveApplications, applyLeave, cancelLeave,
-  getHolidays, getEmployee
-} from '../store/dataStore';
+import { supabase } from '../lib/supabase';
 
 const LEAVE_TYPES = ['CL', 'SL', 'PL'];
 const LEAVE_LABELS = { CL: 'Casual Leave', SL: 'Sick Leave', PL: 'Paid Leave' };
 const LEAVE_COLORS = { CL: '#6c63ff', SL: '#38b2ac', PL: '#f6ad55' };
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
 function daysBetween(from, to) {
-  const d1 = new Date(from), d2 = new Date(to);
-  return Math.max(1, Math.ceil((d2 - d1) / 86400000) + 1);
+  return Math.max(1, Math.ceil((new Date(to) - new Date(from)) / 86400000) + 1);
 }
 
 export default function LeaveManagement() {
-  const { user, refreshNotifications } = useAuth();
+  const { user } = useAuth();
+
   const [tab, setTab] = useState('overview');
   const [showApply, setShowApply] = useState(false);
   const [form, setForm] = useState({ type: 'CL', fromDate: '', toDate: '', reason: '' });
   const [formError, setFormError] = useState('');
   const [alert, setAlert] = useState(null);
-  const [refresh, setRefresh] = useState(0);
+  const [saving, setSaving] = useState(false);
 
-  const balance = getLeaveBalance(user.id);
-  const applications = getLeaveApplications({ employeeId: user.id });
-  const holidays = getHolidays();
-  const manager = user.managerId ? getEmployee(user.managerId) : null;
+  // Data from Supabase
+  const [balance, setBalance] = useState({ CL: 0, SL: 0, PL: 0 });
+  const [applications, setApplications] = useState([]);
+  const [holidays, setHolidays] = useState([]);
+  const [manager, setManager] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  function showAlert(type, msg) {
-    setAlert({ type, msg });
-    setTimeout(() => setAlert(null), 3500);
-  }
+  // Mini-calendar state
+  const today = new Date();
+  const [calMonth, setCalMonth] = useState(today.getMonth());
+  const [calYear, setCalYear] = useState(today.getFullYear());
 
-  function handleApply() {
+  function showAlert(type, msg) { setAlert({ type, msg }); setTimeout(() => setAlert(null), 3500); }
+
+  const fetchData = useCallback(async () => {
+    if (!user?.id || !user?.company_id) return;
+    setLoading(true);
+    try {
+      const [balRes, appsRes, holRes] = await Promise.all([
+        supabase
+          .from('leave_balances')
+          .select('*')
+          .eq('employee_id', user.id)
+          .eq('company_id', user.company_id)
+          .single(),
+        supabase
+          .from('leave_applications')
+          .select('*')
+          .eq('employee_id', user.id)
+          .eq('company_id', user.company_id)
+          .order('applied_on', { ascending: false }),
+        supabase
+          .from('holidays')
+          .select('*')
+          .eq('company_id', user.company_id)
+          .order('date'),
+      ]);
+
+      // Balance
+      if (balRes.data) {
+        setBalance({ CL: balRes.data.cl ?? 0, SL: balRes.data.sl ?? 0, PL: balRes.data.pl ?? 0 });
+      } else {
+        // No balance row exists yet — default to 0
+        setBalance({ CL: 0, SL: 0, PL: 0 });
+      }
+
+      // Applications
+      const apps = (appsRes.data || []).map(l => ({
+        id: l.id,
+        employeeId: l.employee_id,
+        type: l.type,
+        fromDate: l.from_date,
+        toDate: l.to_date,
+        reason: l.reason,
+        status: l.status,
+        managerComment: l.manager_comment || '',
+        appliedOn: l.applied_on,
+      }));
+      setApplications(apps);
+      setHolidays(holRes.data || []);
+
+      // Fetch manager info if exists
+      if (user.managerId) {
+        const { data: mgrData } = await supabase
+          .from('employees')
+          .select('id, name, email, phone')
+          .eq('id', user.managerId)
+          .single();
+        setManager(mgrData || null);
+      }
+    } catch (err) {
+      console.error('LeaveManagement fetchData error:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.id, user?.company_id, user?.managerId]);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  async function handleApply() {
     setFormError('');
     if (!form.fromDate || !form.toDate) { setFormError('Please select date range.'); return; }
     if (new Date(form.toDate) < new Date(form.fromDate)) { setFormError('End date cannot be before start date.'); return; }
     if (!form.reason.trim()) { setFormError('Please provide a reason.'); return; }
     const days = daysBetween(form.fromDate, form.toDate);
     if (balance[form.type] < days) { setFormError(`Insufficient ${LEAVE_LABELS[form.type]} balance. Available: ${balance[form.type]} days.`); return; }
-    applyLeave({ employeeId: user.id, ...form });
-    refreshNotifications();
-    setShowApply(false);
-    setForm({ type: 'CL', fromDate: '', toDate: '', reason: '' });
-    setRefresh(r => r + 1);
-    showAlert('success', 'Leave application submitted successfully!');
+
+    setSaving(true);
+    try {
+      const { error } = await supabase.from('leave_applications').insert({
+        company_id: user.company_id,
+        employee_id: user.id,
+        type: form.type,
+        from_date: form.fromDate,
+        to_date: form.toDate,
+        reason: form.reason,
+        status: 'pending',
+        applied_on: new Date().toISOString().split('T')[0],
+      });
+      if (error) throw error;
+      setShowApply(false);
+      setForm({ type: 'CL', fromDate: '', toDate: '', reason: '' });
+      showAlert('success', 'Leave application submitted successfully!');
+      fetchData();
+    } catch (err) {
+      setFormError(err?.message || 'Failed to submit application.');
+    } finally {
+      setSaving(false);
+    }
   }
 
-  function handleCancel(leaveId) {
+  async function handleCancel(leaveId) {
     if (!window.confirm('Cancel this leave application?')) return;
-    cancelLeave(leaveId, user.id);
-    setRefresh(r => r + 1);
-    showAlert('info', 'Leave application cancelled.');
+    try {
+      const { error } = await supabase
+        .from('leave_applications')
+        .update({ status: 'cancelled' })
+        .eq('id', leaveId)
+        .eq('employee_id', user.id);
+      if (error) throw error;
+      showAlert('info', 'Leave application cancelled.');
+      fetchData();
+    } catch (err) {
+      showAlert('error', err?.message || 'Failed to cancel.');
+    }
   }
 
   const pendingApps = applications.filter(a => a.status === 'pending');
   const approvedApps = applications.filter(a => a.status === 'approved');
 
-  // Mini calendar
-  const today = new Date();
-  const [calMonth, setCalMonth] = useState(today.getMonth());
-  const [calYear, setCalYear] = useState(today.getFullYear());
+  // Calendar helpers
   const calDays = useMemo(() => {
     const first = new Date(calYear, calMonth, 1);
     const last = new Date(calYear, calMonth + 1, 0);
@@ -75,10 +165,11 @@ export default function LeaveManagement() {
     return cells;
   }, [calMonth, calYear]);
 
-  const holidayDates = new Set(holidays.filter(h => {
-    const d = new Date(h.date);
-    return d.getMonth() === calMonth && d.getFullYear() === calYear;
-  }).map(h => new Date(h.date).getDate()));
+  const holidayDates = new Set(
+    holidays
+      .filter(h => { const d = new Date(h.date); return d.getMonth() === calMonth && d.getFullYear() === calYear; })
+      .map(h => new Date(h.date).getDate())
+  );
 
   const leaveDates = useMemo(() => {
     const set = new Set();
@@ -94,8 +185,6 @@ export default function LeaveManagement() {
     });
     return set;
   }, [applications, calMonth, calYear]);
-
-  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
   return (
     <Layout title="Leave Management">
@@ -120,7 +209,7 @@ export default function LeaveManagement() {
             </div>
             <div>
               <div className="stat-label">{LEAVE_LABELS[t]}</div>
-              <div className="stat-value">{balance[t] ?? 0}</div>
+              <div className="stat-value">{loading ? '…' : balance[t] ?? 0}</div>
               <div className="stat-sub">days remaining</div>
             </div>
           </div>
@@ -132,6 +221,9 @@ export default function LeaveManagement() {
         {['overview', 'pending', 'history', 'calendar', 'holidays'].map(t => (
           <button key={t} className={`tab-btn ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>
             {t.charAt(0).toUpperCase() + t.slice(1)}
+            {t === 'pending' && pendingApps.length > 0 && (
+              <span className="nav-badge" style={{ position: 'static', marginLeft: 6 }}>{pendingApps.length}</span>
+            )}
           </button>
         ))}
       </div>
@@ -139,7 +231,6 @@ export default function LeaveManagement() {
       {/* Tab: Overview */}
       {tab === 'overview' && (
         <div className="grid-2">
-          {/* Manager Info */}
           {manager && (
             <div className="card">
               <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-1)', marginBottom: 14 }}>Your Reporting Manager</div>
@@ -150,15 +241,18 @@ export default function LeaveManagement() {
               </div>
             </div>
           )}
-          {/* Recent */}
           <div className="card">
             <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-1)', marginBottom: 14 }}>Recent Applications</div>
-            {applications.length === 0 ? <div className="empty-state" style={{ padding: 24 }}><CalendarDays size={36} color="#cbd5e1" /><p>No applications yet</p></div> : (
+            {loading ? (
+              <div className="empty-state" style={{ padding: 24 }}><p>Loading…</p></div>
+            ) : applications.length === 0 ? (
+              <div className="empty-state" style={{ padding: 24 }}><CalendarDays size={36} color="#cbd5e1" /><p>No applications yet</p></div>
+            ) : (
               applications.slice(0, 4).map(a => (
                 <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)' }}>{LEAVE_LABELS[a.type]}</div>
-                    <div style={{ fontSize: 11.5, color: 'var(--text-3)' }}>{a.fromDate} &ndash; {a.toDate}</div>
+                    <div style={{ fontSize: 11.5, color: 'var(--text-3)' }}>{a.fromDate} – {a.toDate}</div>
                   </div>
                   <Badge status={a.status} />
                 </div>
@@ -232,7 +326,7 @@ export default function LeaveManagement() {
       {tab === 'calendar' && (
         <div className="card">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-            <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--text-1)' }}>{monthNames[calMonth]} {calYear}</div>
+            <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--text-1)' }}>{MONTH_NAMES[calMonth]} {calYear}</div>
             <div style={{ display: 'flex', gap: 8 }}>
               <button className="btn btn-secondary btn-sm" onClick={() => { if (calMonth === 0) { setCalMonth(11); setCalYear(y => y - 1); } else setCalMonth(m => m - 1); }}>‹</button>
               <button className="btn btn-secondary btn-sm" onClick={() => { if (calMonth === 11) { setCalMonth(0); setCalYear(y => y + 1); } else setCalMonth(m => m + 1); }}>›</button>
@@ -264,7 +358,9 @@ export default function LeaveManagement() {
             <table className="data-table">
               <thead><tr><th>#</th><th>Holiday</th><th>Date</th><th>Day</th><th>Type</th></tr></thead>
               <tbody>
-                {holidays.map((h, i) => {
+                {holidays.length === 0 ? (
+                  <tr><td colSpan={5}><div className="empty-state" style={{ padding: 24 }}><p>No holidays configured</p></div></td></tr>
+                ) : holidays.map((h, i) => {
                   const d = new Date(h.date);
                   const dayName = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][d.getDay()];
                   return (
@@ -288,7 +384,9 @@ export default function LeaveManagement() {
         footer={
           <>
             <button className="btn btn-secondary" onClick={() => setShowApply(false)}>Cancel</button>
-            <button className="btn btn-primary" onClick={handleApply}>Submit Application</button>
+            <button className="btn btn-primary" onClick={handleApply} disabled={saving}>
+              {saving ? 'Submitting…' : 'Submit Application'}
+            </button>
           </>
         }
       >

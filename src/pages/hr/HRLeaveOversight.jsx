@@ -5,7 +5,8 @@ import Modal from '../../components/Modal';
 import Badge from '../../components/Badge';
 import Avatar from '../../components/Avatar';
 import { useAuth } from '../../context/AuthContext';
-import { getEmployees, getLeaveApplications, getLeaveBalance, reviewLeave, getDepartments } from '../../store/dataStore';
+import { supabase } from '../../lib/supabase';
+import { useCompanyData } from '../../hooks/useCompanyData';
 
 const LEAVE_LABELS = { CL: 'Casual Leave', SL: 'Sick Leave', PL: 'Paid Leave' };
 const LEAVE_COLORS = { CL: '#4f46e5', SL: '#0ea5e9', PL: '#f59e0b' };
@@ -15,7 +16,9 @@ function daysBetween(from, to) {
 }
 
 export default function HRLeaveOversight() {
-  const { refreshNotifications } = useAuth();
+  const { user } = useAuth();
+  const { employees, departments, leaveApplications, leaveBalances, loading, reload } = useCompanyData();
+
   const [tab, setTab] = useState('pending');
   const [search, setSearch] = useState('');
   const [filterDept, setFilterDept] = useState('');
@@ -23,19 +26,15 @@ export default function HRLeaveOversight() {
   const [modalAction, setModalAction] = useState('');
   const [comment, setComment] = useState('');
   const [alert, setAlert] = useState(null);
-  const [refresh, setRefresh] = useState(0);
-
-  const employees = getEmployees();
-  const departments = getDepartments();
-  const allLeaves = getLeaveApplications({});
+  const [saving, setSaving] = useState(false);
 
   function showAlert(type, msg) { setAlert({ type, msg }); setTimeout(() => setAlert(null), 3500); }
 
-  const pending = allLeaves.filter(l => l.status === 'pending');
-  const approved = allLeaves.filter(l => l.status === 'approved');
-  const rejected = allLeaves.filter(l => l.status === 'rejected');
+  const pending = leaveApplications.filter(l => l.status === 'pending');
+  const approved = leaveApplications.filter(l => l.status === 'approved');
+  const rejected = leaveApplications.filter(l => l.status === 'rejected');
 
-  const displayedBase = tab === 'pending' ? pending : tab === 'approved' ? approved : tab === 'rejected' ? rejected : allLeaves;
+  const displayedBase = tab === 'pending' ? pending : tab === 'approved' ? approved : tab === 'rejected' ? rejected : leaveApplications;
 
   const displayed = displayedBase.filter(l => {
     const emp = employees.find(e => e.id === l.employeeId);
@@ -50,12 +49,42 @@ export default function HRLeaveOversight() {
     setComment('');
   }
 
-  function handleReview() {
-    reviewLeave(selectedApp.id, modalAction, comment);
-    refreshNotifications();
-    setSelectedApp(null);
-    setRefresh(r => r + 1);
-    showAlert(modalAction === 'approved' ? 'success' : 'info', `Leave ${modalAction} successfully.`);
+  async function handleReview() {
+    if (!selectedApp) return;
+    setSaving(true);
+    try {
+      // 1. Update leave application status
+      const { error: appErr } = await supabase
+        .from('leave_applications')
+        .update({ status: modalAction, manager_comment: comment })
+        .eq('id', selectedApp.id)
+        .eq('company_id', user.company_id);
+      if (appErr) throw appErr;
+
+      // 2. If approved — deduct balance from leave_balances
+      if (modalAction === 'approved') {
+        const days = daysBetween(selectedApp.fromDate, selectedApp.toDate);
+        const colMap = { CL: 'cl', SL: 'sl', PL: 'pl' };
+        const col = colMap[selectedApp.type];
+        const current = leaveBalances[selectedApp.employeeId] || { CL: 0, SL: 0, PL: 0 };
+        const newVal = Math.max(0, (current[selectedApp.type] ?? 0) - days);
+
+        const { error: balErr } = await supabase
+          .from('leave_balances')
+          .update({ [col]: newVal })
+          .eq('employee_id', selectedApp.employeeId)
+          .eq('company_id', user.company_id);
+        if (balErr) throw balErr;
+      }
+
+      setSelectedApp(null);
+      showAlert(modalAction === 'approved' ? 'success' : 'info', `Leave ${modalAction} successfully.`);
+      reload();
+    } catch (err) {
+      showAlert('error', err?.message || 'Failed to update leave status.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   function getEmpInfo(id) {
@@ -77,7 +106,7 @@ export default function HRLeaveOversight() {
       {/* Stats */}
       <div className="grid-4" style={{ marginBottom: 24 }}>
         {[
-          { label: 'Total Applications', val: allLeaves.length, color: '#4f46e5', bg: '#eef2ff' },
+          { label: 'Total Applications', val: leaveApplications.length, color: '#4f46e5', bg: '#eef2ff' },
           { label: 'Pending Approval', val: pending.length, color: '#f59e0b', bg: '#fffbeb' },
           { label: 'Approved', val: approved.length, color: '#10b981', bg: '#f0fdf4' },
           { label: 'Rejected', val: rejected.length, color: '#ef4444', bg: '#fff5f5' },
@@ -86,7 +115,7 @@ export default function HRLeaveOversight() {
             <div style={{ width: 12, height: 12, borderRadius: '50%', background: s.color, flexShrink: 0 }} />
             <div>
               <div style={{ fontSize: 11.5, color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>{s.label}</div>
-              <div style={{ fontSize: 24, fontWeight: 800, color: s.color }}>{s.val}</div>
+              <div style={{ fontSize: 24, fontWeight: 800, color: s.color }}>{loading ? '…' : s.val}</div>
             </div>
           </div>
         ))}
@@ -121,25 +150,21 @@ export default function HRLeaveOversight() {
           <table className="data-table">
             <thead>
               <tr>
-                <th>Employee</th>
-                <th>Department</th>
-                <th>Leave Type</th>
-                <th>From</th>
-                <th>To</th>
-                <th>Days</th>
-                <th>Reason</th>
-                <th>Status</th>
-                <th>Applied On</th>
+                <th>Employee</th><th>Department</th><th>Leave Type</th>
+                <th>From</th><th>To</th><th>Days</th><th>Reason</th>
+                <th>Status</th><th>Applied On</th>
                 {tab === 'pending' && <th>Actions</th>}
               </tr>
             </thead>
             <tbody>
-              {displayed.length === 0 ? (
+              {loading ? (
+                <tr><td colSpan={10}><div className="empty-state" style={{ padding: 32 }}><p>Loading…</p></div></td></tr>
+              ) : displayed.length === 0 ? (
                 <tr><td colSpan={10}><div className="empty-state" style={{ padding: 32 }}><CalendarDays size={36} color="#cbd5e1" /><p>No leave applications found</p></div></td></tr>
               ) : (
                 displayed.map(l => {
-                  const { name, dept, emp } = getEmpInfo(l.employeeId);
-                  const bal = getLeaveBalance(l.employeeId);
+                  const { name, dept } = getEmpInfo(l.employeeId);
+                  const bal = leaveBalances[l.employeeId] || { CL: 0, SL: 0, PL: 0 };
                   return (
                     <tr key={l.id}>
                       <td>
@@ -186,7 +211,7 @@ export default function HRLeaveOversight() {
         footer={
           <>
             <button className="btn btn-secondary" onClick={() => setSelectedApp(null)}>Cancel</button>
-            <button className={`btn ${modalAction === 'approved' ? 'btn-success' : 'btn-danger'}`} onClick={handleReview}>
+            <button className={`btn ${modalAction === 'approved' ? 'btn-success' : 'btn-danger'}`} onClick={handleReview} disabled={saving}>
               {modalAction === 'approved' ? 'Confirm Approval' : 'Confirm Rejection'}
             </button>
           </>

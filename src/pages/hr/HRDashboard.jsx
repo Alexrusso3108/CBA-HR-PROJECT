@@ -5,40 +5,29 @@ import Layout from '../../components/Layout';
 import Avatar from '../../components/Avatar';
 import Badge from '../../components/Badge';
 import { useAuth } from '../../context/AuthContext';
-import {
-  getEmployees, getLeaveApplications, getPerformanceReviews,
-  getDepartments, getLeaveBalance, getGoals,
-} from '../../store/dataStore';
+import { useCompanyData } from '../../hooks/useCompanyData';
 
 export default function HRDashboard() {
   const { user } = useAuth();
   const nav = useNavigate();
   const today = new Date().toISOString().split('T')[0];
 
-  const employees = getEmployees();
+  const { employees, departments, leaveApplications, loading } = useCompanyData();
+
   const activeEmps = employees.filter(e => e.status === 'active');
-  const departments = getDepartments();
-  const allLeaves = getLeaveApplications({});
-  const allReviews = getPerformanceReviews({});
-  const allGoals = getGoals({});
+  const pendingLeaves = leaveApplications.filter(l => l.status === 'pending');
+  const approvedToday = leaveApplications.filter(l => l.status === 'approved' && l.fromDate <= today && l.toDate >= today);
+  const recentLeaves = [...leaveApplications].slice(0, 6);
 
-  const pendingLeaves = allLeaves.filter(l => l.status === 'pending');
-  const approvedToday = allLeaves.filter(l => l.status === 'approved' && l.fromDate <= today && l.toDate >= today);
-  const pendingReviews = allReviews.filter(r => r.status === 'submitted');
-
-  // Dept headcount
-  const deptBreakdown = useMemo(() => departments.map(d => ({
-    ...d,
-    count: activeEmps.filter(e => e.departmentId === d.id).length,
-  })).filter(d => d.count > 0).sort((a, b) => b.count - a.count), [activeEmps, departments]);
-
-  // Recent leave applications
-  const recentLeaves = [...allLeaves].reverse().slice(0, 6);
-
-  // Upcoming joinings this year
   const newJoinees = employees
-    .filter(e => e.joiningDate?.startsWith(new Date().getFullYear()))
+    .filter(e => e.joiningDate?.startsWith(String(new Date().getFullYear())))
     .sort((a, b) => new Date(b.joiningDate) - new Date(a.joiningDate));
+
+  const deptBreakdown = useMemo(() =>
+    departments.map(d => ({ ...d, count: activeEmps.filter(e => e.departmentId === d.id).length }))
+      .filter(d => d.count > 0)
+      .sort((a, b) => b.count - a.count),
+    [activeEmps, departments]);
 
   const roleMap = { employee: 'Employee', manager: 'Manager', admin: 'Admin', hr: 'HR' };
 
@@ -51,7 +40,7 @@ export default function HRDashboard() {
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 12, fontWeight: 500, opacity: 0.8, marginBottom: 4, letterSpacing: 0.2 }}>HR Manager</div>
           <div style={{ fontSize: 22, fontWeight: 800, marginBottom: 3 }}>{user.name}</div>
-          <div style={{ fontSize: 13, opacity: 0.7 }}>{user.id} &nbsp;·&nbsp; Human Resources</div>
+          <div style={{ fontSize: 13, opacity: 0.7 }}>{user.employeeCode || user.id} &nbsp;·&nbsp; Human Resources</div>
         </div>
         <div style={{ display: 'flex', gap: 20, textAlign: 'center' }}>
           {[
@@ -60,7 +49,7 @@ export default function HRDashboard() {
             { label: 'Pending Requests', value: pendingLeaves.length },
           ].map(s => (
             <div key={s.label} style={{ padding: '10px 18px', background: 'rgba(255,255,255,0.13)', borderRadius: 10, border: '1px solid rgba(255,255,255,0.18)', backdropFilter: 'blur(8px)' }}>
-              <div style={{ fontSize: 22, fontWeight: 800 }}>{s.value}</div>
+              <div style={{ fontSize: 22, fontWeight: 800 }}>{loading ? '…' : s.value}</div>
               <div style={{ fontSize: 11, opacity: 0.75, fontWeight: 500 }}>{s.label}</div>
             </div>
           ))}
@@ -72,8 +61,8 @@ export default function HRDashboard() {
         {[
           { label: 'Active Employees', value: activeEmps.length, icon: Users, color: '#4f46e5', bg: '#eef2ff' },
           { label: 'Open Leave Requests', value: pendingLeaves.length, icon: CalendarDays, color: '#f59e0b', bg: '#fffbeb' },
-          { label: 'Pending Reviews', value: pendingReviews.length, icon: FileText, color: '#0ea5e9', bg: '#f0f9ff' },
           { label: 'Departments', value: departments.length, icon: Building, color: '#10b981', bg: '#f0fdf4' },
+          { label: 'Total Staff', value: employees.length, icon: FileText, color: '#0ea5e9', bg: '#f0f9ff' },
         ].map(s => {
           const Icon = s.icon;
           return (
@@ -83,7 +72,7 @@ export default function HRDashboard() {
               </div>
               <div>
                 <div style={{ fontSize: 11.5, color: '#64748b', fontWeight: 600, marginBottom: 2, textTransform: 'uppercase', letterSpacing: 0.5 }}>{s.label}</div>
-                <div style={{ fontSize: 24, fontWeight: 800, color: s.color }}>{s.value}</div>
+                <div style={{ fontSize: 24, fontWeight: 800, color: s.color }}>{loading ? '…' : s.value}</div>
               </div>
             </div>
           );
@@ -99,18 +88,20 @@ export default function HRDashboard() {
               Full Report <ArrowRight size={12} />
             </button>
           </div>
-          {deptBreakdown.map(d => {
-            const pct = Math.round((d.count / activeEmps.length) * 100);
-            return (
-              <div key={d.id} style={{ marginBottom: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
-                  <span style={{ fontSize: 13, color: '#334155', fontWeight: 500 }}>{d.name}</span>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: '#4f46e5' }}>{d.count} <span style={{ color: '#94a3b8', fontWeight: 400 }}>({pct}%)</span></span>
+          {deptBreakdown.length === 0
+            ? <div className="empty-state" style={{ padding: 24 }}><p>No departments found</p></div>
+            : deptBreakdown.map(d => {
+              const pct = activeEmps.length ? Math.round((d.count / activeEmps.length) * 100) : 0;
+              return (
+                <div key={d.id} style={{ marginBottom: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+                    <span style={{ fontSize: 13, color: '#334155', fontWeight: 500 }}>{d.name}</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: '#4f46e5' }}>{d.count} <span style={{ color: '#94a3b8', fontWeight: 400 }}>({pct}%)</span></span>
+                  </div>
+                  <div className="progress-bar"><div className="progress-fill" style={{ width: `${pct}%` }} /></div>
                 </div>
-                <div className="progress-bar"><div className="progress-fill" style={{ width: `${pct}%` }} /></div>
-              </div>
-            );
-          })}
+              );
+            })}
         </div>
 
         {/* Recent Leave Requests */}
@@ -121,23 +112,21 @@ export default function HRDashboard() {
               Manage all <ArrowRight size={12} />
             </button>
           </div>
-          {recentLeaves.length === 0 ? (
-            <div className="empty-state" style={{ padding: 24 }}><CalendarDays size={36} color="#cbd5e1" /><p>No leave applications</p></div>
-          ) : (
-            recentLeaves.map(l => {
+          {recentLeaves.length === 0
+            ? <div className="empty-state" style={{ padding: 24 }}><CalendarDays size={36} color="#cbd5e1" /><p>No leave applications</p></div>
+            : recentLeaves.map(l => {
               const emp = employees.find(e => e.id === l.employeeId);
               return (
                 <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', borderBottom: '1px solid #f1f5f9' }}>
                   <Avatar name={emp?.name || '?'} size="sm" />
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: '#0f172a' }}>{emp?.name || l.employeeId}</div>
-                    <div style={{ fontSize: 11.5, color: '#64748b' }}>{l.type} &nbsp;·&nbsp; {l.fromDate} &ndash; {l.toDate}</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#0f172a' }}>{emp?.name || '—'}</div>
+                    <div style={{ fontSize: 11.5, color: '#64748b' }}>{l.type} &nbsp;·&nbsp; {l.fromDate} – {l.toDate}</div>
                   </div>
                   <Badge status={l.status} />
                 </div>
               );
-            })
-          )}
+            })}
         </div>
       </div>
 
@@ -178,7 +167,7 @@ export default function HRDashboard() {
                 <Avatar name={e.name} size="md" />
                 <div>
                   <div style={{ fontSize: 13.5, fontWeight: 700, color: '#0f172a', marginBottom: 1 }}>{e.name}</div>
-                  <div style={{ fontSize: 11.5, color: '#64748b' }}>{roleMap[e.role]} &nbsp;·&nbsp; Joined {e.joiningDate}</div>
+                  <div style={{ fontSize: 11.5, color: '#64748b' }}>{roleMap[e.role] || e.role} &nbsp;·&nbsp; Joined {e.joiningDate}</div>
                 </div>
               </div>
             ))}

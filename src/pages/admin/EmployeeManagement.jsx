@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Plus, Edit2, UserX, UserCheck, Search,
-  AlertCircle, Copy, CheckCircle2, KeyRound, X
+  AlertCircle, Copy, CheckCircle2, KeyRound, X, RefreshCw
 } from 'lucide-react';
 import Layout from '../../components/Layout';
 import Modal from '../../components/Modal';
@@ -9,11 +9,6 @@ import Badge from '../../components/Badge';
 import Avatar from '../../components/Avatar';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
-import {
-  getEmployees, addEmployee, updateEmployee,
-  deactivateEmployee, reactivateEmployee,
-  getDepartments, getDesignations,
-} from '../../store/dataStore';
 
 // ALL supported roles — admin can assign any of these
 const ROLES = [
@@ -32,6 +27,9 @@ const emptyForm = {
   password: 'Welcome@123',
 };
 
+// Helper: only pass UUIDs to Supabase — local store IDs like 'dept-1' are invalid
+const isUUID = v => v && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+
 export default function EmployeeManagement() {
   const [search, setSearch] = useState('');
   const [filterDept, setFilterDept] = useState('');
@@ -42,16 +40,85 @@ export default function EmployeeManagement() {
   const [form, setForm] = useState(emptyForm);
   const [formError, setFormError] = useState('');
   const [alert, setAlert] = useState(null);
-  const [refresh, setRefresh] = useState(0);
+
+  // ── Data loaded from Supabase ──────────────────────────────────────
+  const [employees, setEmployees] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [designations, setDesignations] = useState([]);
+  const [loading, setLoading] = useState(true);
+
   // Credential card shown after successful add
   const [newCreds, setNewCreds] = useState(null);
   const [copiedField, setCopiedField] = useState('');
 
   const { user: adminUser } = useAuth();
-  const departments = getDepartments();
-  const designations = getDesignations();
-  const allEmployees = getEmployees();
-  const managers = allEmployees.filter(e => ['manager', 'admin', 'hr'].includes(e.role));
+
+  // ── Fetch all data from Supabase ───────────────────────────────────
+  const fetchAll = useCallback(async () => {
+    if (!adminUser?.company_id) return;
+    setLoading(true);
+    try {
+      const [empRes, deptRes, desRes] = await Promise.all([
+        supabase
+          .from('employees')
+          .select('*')
+          .eq('company_id', adminUser.company_id)
+          .order('created_at', { ascending: true }),
+        supabase
+          .from('departments')
+          .select('*')
+          .eq('company_id', adminUser.company_id)
+          .order('name'),
+        supabase
+          .from('designations')
+          .select('*')
+          .eq('company_id', adminUser.company_id)
+          .order('name'),
+      ]);
+
+      if (empRes.error) throw empRes.error;
+      if (deptRes.error) throw deptRes.error;
+      if (desRes.error) throw desRes.error;
+
+      // Normalise column names from DB → camelCase used by UI
+      const normEmp = (empRes.data || []).map(e => ({
+        id: e.id,
+        employeeCode: e.employee_code,
+        name: e.name,
+        email: e.email,
+        phone: e.phone,
+        address: e.address,
+        dob: e.dob,
+        joiningDate: e.joining_date,
+        departmentId: e.department_id,
+        designationId: e.designation_id,
+        managerId: e.manager_id,
+        role: e.role,
+        salary: e.salary,
+        status: e.status,
+        emergencyContact: e.emergency_contact,
+        avatar: e.avatar,
+        company_id: e.company_id,
+      }));
+
+      setEmployees(normEmp);
+      setDepartments(deptRes.data || []);
+      setDesignations((desRes.data || []).map(d => ({
+        id: d.id,
+        name: d.name,
+        deptId: d.dept_id,
+      })));
+    } catch (err) {
+      console.error('fetchAll error:', err);
+      showAlert('error', 'Failed to load employees: ' + (err?.message || 'Unknown error'));
+    } finally {
+      setLoading(false);
+    }
+  }, [adminUser?.company_id]);
+
+  useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  const managers = employees.filter(e => ['manager', 'admin', 'hr'].includes(e.role));
 
   function showAlert(type, msg) {
     setAlert({ type, msg });
@@ -65,11 +132,11 @@ export default function EmployeeManagement() {
     });
   }
 
-  const filtered = allEmployees.filter(e => {
+  const filtered = employees.filter(e => {
     const matchStatus = tab === 'active' ? e.status === 'active' : e.status === 'inactive';
     const matchSearch = !search ||
       e.name.toLowerCase().includes(search.toLowerCase()) ||
-      e.id.toLowerCase().includes(search.toLowerCase()) ||
+      (e.employeeCode || '').toLowerCase().includes(search.toLowerCase()) ||
       e.email.toLowerCase().includes(search.toLowerCase());
     const matchDept = !filterDept || e.departmentId === filterDept;
     const matchRole = !filterRole || e.role === filterRole;
@@ -86,15 +153,19 @@ export default function EmployeeManagement() {
   function openEdit(emp) {
     setEditing(emp);
     setForm({
-      name: emp.name, email: emp.email, phone: emp.phone || '',
-      address: emp.address || '', dob: emp.dob || '',
+      name: emp.name,
+      email: emp.email,
+      phone: emp.phone || '',
+      address: emp.address || '',
+      dob: emp.dob || '',
       joiningDate: emp.joiningDate || '',
       departmentId: emp.departmentId || '',
       designationId: emp.designationId || '',
       managerId: emp.managerId || '',
-      role: emp.role, salary: emp.salary || '',
+      role: emp.role,
+      salary: emp.salary || '',
       emergencyContact: emp.emergencyContact || '',
-      password: emp.password || '',
+      password: '',
     });
     setFormError('');
     setShowModal(true);
@@ -106,29 +177,48 @@ export default function EmployeeManagement() {
     if (!form.email.trim()) return setFormError('Work email is required.');
     if (!form.joiningDate) return setFormError('Joining date is required.');
     if (!form.role) return setFormError('Please select a role.');
-    if (!form.password.trim()) return setFormError('A temporary password is required.');
-
-    if (editing) {
-      // Local update for now
-      updateEmployee(editing.id, {
-        ...form,
-        salary: Number(form.salary) || 0,
-        managerId: form.managerId || null,
-      });
-      showAlert('success', `${form.name} updated successfully!`);
-      setShowModal(false);
-      setRefresh(r => r + 1);
-      return;
-    }
-
-    // ── Add via Supabase RPC ────────────────────────────────────────
-    // Helper: only pass UUIDs to Supabase — local store IDs like 'dept-1' are invalid
-    const isUUID = v => v && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+    if (!editing && !form.password.trim()) return setFormError('A temporary password is required.');
 
     // Supabase CHECK only allows: admin|manager|hr|employee
     // 'intern' is a display-only role — stored as 'employee' in DB
     const dbRole = form.role === 'intern' ? 'employee' : form.role;
 
+    if (editing) {
+      // ── Update existing employee in Supabase ─────────────────────
+      try {
+        const updatePayload = {
+          name: form.name.trim(),
+          email: form.email.trim(),
+          phone: form.phone || null,
+          address: form.address || null,
+          dob: form.dob || null,
+          joining_date: form.joiningDate,
+          department_id: isUUID(form.departmentId) ? form.departmentId : null,
+          designation_id: isUUID(form.designationId) ? form.designationId : null,
+          manager_id: isUUID(form.managerId) ? form.managerId : null,
+          role: dbRole,
+          salary: Number(form.salary) || 0,
+          emergency_contact: form.emergencyContact || null,
+        };
+
+        const { error } = await supabase
+          .from('employees')
+          .update(updatePayload)
+          .eq('id', editing.id)
+          .eq('company_id', adminUser.company_id);
+
+        if (error) throw error;
+        showAlert('success', `${form.name} updated successfully!`);
+        setShowModal(false);
+        await fetchAll();
+      } catch (err) {
+        console.error('update employee error:', err);
+        setFormError(err?.message || 'Failed to update employee. Please try again.');
+      }
+      return;
+    }
+
+    // ── Add via Supabase RPC ────────────────────────────────────────
     try {
       const { data, error } = await supabase.rpc('add_employee', {
         p_company_id: adminUser?.company_id,
@@ -154,33 +244,42 @@ export default function EmployeeManagement() {
         name: created?.name || form.name,
         id: created?.employee_code || '—',
         email: created?.email || form.email,
-        role: created?.role || form.role,
+        role: form.role,
         password: form.password,
       });
       showAlert('success', `${form.name} added! Share the credentials below.`);
       setShowModal(false);
-      setRefresh(r => r + 1);
+      await fetchAll();
     } catch (err) {
       console.error('add_employee error:', err);
       setFormError(err?.message || 'Failed to add employee. Please try again.');
     }
   }
 
-  function handleToggleStatus(emp) {
+  async function handleToggleStatus(emp) {
+    const newStatus = emp.status === 'active' ? 'inactive' : 'active';
     if (emp.status === 'active') {
       if (!window.confirm(`Deactivate ${emp.name}? They will lose access.`)) return;
-      deactivateEmployee(emp.id);
-      showAlert('info', `${emp.name} has been deactivated.`);
-    } else {
-      reactivateEmployee(emp.id);
-      showAlert('success', `${emp.name} has been reactivated.`);
     }
-    setRefresh(r => r + 1);
+    try {
+      const { error } = await supabase
+        .from('employees')
+        .update({ status: newStatus })
+        .eq('id', emp.id)
+        .eq('company_id', adminUser.company_id);
+      if (error) throw error;
+      showAlert(newStatus === 'active' ? 'success' : 'info',
+        `${emp.name} has been ${newStatus === 'active' ? 'reactivated' : 'deactivated'}.`);
+      await fetchAll();
+    } catch (err) {
+      console.error('toggle status error:', err);
+      showAlert('error', 'Failed to update status: ' + (err?.message || ''));
+    }
   }
 
   const deptName = id => departments.find(d => d.id === id)?.name || '—';
   const desName = id => designations.find(d => d.id === id)?.name || '—';
-  const mgrName = id => allEmployees.find(e => e.id === id)?.name || '—';
+  const mgrName = id => employees.find(e => e.id === id)?.name || '—';
   const roleInfo = v => ROLES.find(r => r.value === v) || { color: '#94a3b8', label: v };
 
   return (
@@ -193,9 +292,14 @@ export default function EmployeeManagement() {
           <h1>Employee Management</h1>
           <p>Add team members and manage their access credentials</p>
         </div>
-        <button className="btn btn-primary" onClick={openAdd}>
-          <Plus size={15} /> Add Employee
-        </button>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button className="btn btn-secondary" onClick={fetchAll} title="Refresh" disabled={loading}>
+            <RefreshCw size={15} style={{ animation: loading ? 'spin 0.8s linear infinite' : 'none' }} />
+          </button>
+          <button className="btn btn-primary" onClick={openAdd}>
+            <Plus size={15} /> Add Employee
+          </button>
+        </div>
       </div>
 
       {/* ── Credentials Card (shows after adding a new employee) ── */}
@@ -270,10 +374,10 @@ export default function EmployeeManagement() {
       {/* Stats */}
       <div className="grid-4" style={{ marginBottom: 24 }}>
         {[
-          { label: 'Total Employees', val: allEmployees.length, color: '#6c63ff' },
-          { label: 'Active', val: allEmployees.filter(e => e.status === 'active').length, color: '#38ef7d' },
-          { label: 'Managers', val: allEmployees.filter(e => e.role === 'manager').length, color: '#38bdf8' },
-          { label: 'HR Staff', val: allEmployees.filter(e => e.role === 'hr').length, color: '#c084fc' },
+          { label: 'Total Employees', val: employees.length, color: '#6c63ff' },
+          { label: 'Active', val: employees.filter(e => e.status === 'active').length, color: '#38ef7d' },
+          { label: 'Managers', val: employees.filter(e => e.role === 'manager').length, color: '#38bdf8' },
+          { label: 'HR Staff', val: employees.filter(e => e.role === 'hr').length, color: '#c084fc' },
         ].map(s => (
           <div key={s.label} className="stat-card">
             <div style={{ width: 12, height: 12, borderRadius: '50%', background: s.color, marginRight: 4, flexShrink: 0 }} />
@@ -308,83 +412,90 @@ export default function EmployeeManagement() {
       {/* Tabs */}
       <div className="tabs">
         <button className={`tab-btn ${tab === 'active' ? 'active' : ''}`} onClick={() => setTab('active')}>
-          Active ({allEmployees.filter(e => e.status === 'active').length})
+          Active ({employees.filter(e => e.status === 'active').length})
         </button>
         <button className={`tab-btn ${tab === 'inactive' ? 'active' : ''}`} onClick={() => setTab('inactive')}>
-          Inactive ({allEmployees.filter(e => e.status === 'inactive').length})
+          Inactive ({employees.filter(e => e.status === 'inactive').length})
         </button>
       </div>
 
       {/* Table */}
       <div className="card">
-        <div className="table-wrap">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Employee</th>
-                <th>ID</th>
-                <th>Department</th>
-                <th>Designation</th>
-                <th>Role</th>
-                <th>Manager</th>
-                <th>Joined</th>
-                <th>Status</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.length === 0 ? (
-                <tr><td colSpan={9}><div className="empty-state" style={{ padding: 32 }}><Search size={36} color="#cbd5e1" /><p>No employees found</p></div></td></tr>
-              ) : (
-                filtered.map(emp => {
-                  const ri = roleInfo(emp.role);
-                  return (
-                    <tr key={emp.id}>
-                      <td>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <Avatar name={emp.name} size="sm" />
-                          <div>
-                            <div style={{ fontWeight: 600, color: 'var(--text-1)', fontSize: 13.5 }}>{emp.name}</div>
-                            <div style={{ fontSize: 11.5, color: 'var(--text-3)' }}>{emp.email}</div>
+        {loading ? (
+          <div className="empty-state" style={{ padding: 48 }}>
+            <div style={{ width: 32, height: 32, border: '3px solid rgba(79,70,229,0.2)', borderTopColor: '#4f46e5', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 12px' }} />
+            <p>Loading employees from database…</p>
+          </div>
+        ) : (
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Employee</th>
+                  <th>ID</th>
+                  <th>Department</th>
+                  <th>Designation</th>
+                  <th>Role</th>
+                  <th>Manager</th>
+                  <th>Joined</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.length === 0 ? (
+                  <tr><td colSpan={9}><div className="empty-state" style={{ padding: 32 }}><Search size={36} color="#cbd5e1" /><p>No employees found</p></div></td></tr>
+                ) : (
+                  filtered.map(emp => {
+                    const ri = roleInfo(emp.role);
+                    return (
+                      <tr key={emp.id}>
+                        <td>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <Avatar name={emp.name} size="sm" />
+                            <div>
+                              <div style={{ fontWeight: 600, color: 'var(--text-1)', fontSize: 13.5 }}>{emp.name}</div>
+                              <div style={{ fontSize: 11.5, color: 'var(--text-3)' }}>{emp.email}</div>
+                            </div>
                           </div>
-                        </div>
-                      </td>
-                      <td style={{ fontFamily: 'monospace', fontWeight: 700, color: 'var(--accent-light)', fontSize: 12.5 }}>{emp.id}</td>
-                      <td style={{ fontSize: 13, color: 'var(--text-2)' }}>{deptName(emp.departmentId)}</td>
-                      <td style={{ fontSize: 13, color: 'var(--text-2)' }}>{desName(emp.designationId)}</td>
-                      <td>
-                        <span style={{
-                          padding: '3px 10px', borderRadius: 99, fontSize: 11.5, fontWeight: 700,
-                          background: ri.color + '18', color: ri.color,
-                          border: `1px solid ${ri.color}40`, textTransform: 'capitalize',
-                        }}>
-                          {ri.label}
-                        </span>
-                      </td>
-                      <td style={{ fontSize: 12.5, color: 'var(--text-3)' }}>{emp.managerId ? mgrName(emp.managerId) : '—'}</td>
-                      <td style={{ fontSize: 12.5 }}>{emp.joiningDate || '—'}</td>
-                      <td><Badge status={emp.status} /></td>
-                      <td>
-                        <div style={{ display: 'flex', gap: 6 }}>
-                          <button className="btn btn-secondary btn-sm" onClick={() => openEdit(emp)} title="Edit">
-                            <Edit2 size={12} />
-                          </button>
-                          <button
-                            className={`btn btn-sm ${emp.status === 'active' ? 'btn-danger' : 'btn-success'}`}
-                            onClick={() => handleToggleStatus(emp)}
-                            title={emp.status === 'active' ? 'Deactivate' : 'Reactivate'}
-                          >
-                            {emp.status === 'active' ? <UserX size={12} /> : <UserCheck size={12} />}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+                        </td>
+                        <td style={{ fontFamily: 'monospace', fontWeight: 700, color: 'var(--accent-light)', fontSize: 12.5 }}>{emp.employeeCode}</td>
+                        <td style={{ fontSize: 13, color: 'var(--text-2)' }}>{deptName(emp.departmentId)}</td>
+                        <td style={{ fontSize: 13, color: 'var(--text-2)' }}>{desName(emp.designationId)}</td>
+                        <td>
+                          <span style={{
+                            padding: '3px 10px', borderRadius: 99, fontSize: 11.5, fontWeight: 700,
+                            background: ri.color + '18', color: ri.color,
+                            border: `1px solid ${ri.color}40`, textTransform: 'capitalize',
+                          }}>
+                            {ri.label}
+                          </span>
+                        </td>
+                        <td style={{ fontSize: 12.5, color: 'var(--text-3)' }}>{emp.managerId ? mgrName(emp.managerId) : '—'}</td>
+                        <td style={{ fontSize: 12.5 }}>{emp.joiningDate || '—'}</td>
+                        <td><Badge status={emp.status} /></td>
+                        <td>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button className="btn btn-secondary btn-sm" onClick={() => openEdit(emp)} title="Edit">
+                              <Edit2 size={12} />
+                            </button>
+                            <button
+                              className={`btn btn-sm ${emp.status === 'active' ? 'btn-danger' : 'btn-success'}`}
+                              onClick={() => handleToggleStatus(emp)}
+                              title={emp.status === 'active' ? 'Deactivate' : 'Reactivate'}
+                            >
+                              {emp.status === 'active' ? <UserX size={12} /> : <UserCheck size={12} />}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* ── Add / Edit Modal ──────────────────────────────────── */}
@@ -473,18 +584,20 @@ export default function EmployeeManagement() {
             </select>
           </div>
 
-          {/* Temp Password */}
+          {/* Temp Password — only required when adding */}
           <div className="form-group">
-            <label className="form-label">Temporary Password *</label>
+            <label className="form-label">Temporary Password {!editing && '*'}</label>
             <input
               className="form-input"
               type="text"
               value={form.password}
               onChange={e => setForm({ ...form, password: e.target.value })}
-              placeholder="e.g. Welcome@123"
+              placeholder={editing ? 'Leave blank to keep current password' : 'e.g. Welcome@123'}
             />
             <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>
-              Employee must change this after first login
+              {editing
+                ? 'Leave blank to keep the current password unchanged.'
+                : 'Employee must change this after first login.'}
             </div>
           </div>
 
@@ -501,6 +614,8 @@ export default function EmployeeManagement() {
           </div>
         </div>
       </Modal>
+
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </Layout>
   );
 }

@@ -3,20 +3,19 @@ import { Search, Mail, Phone, Building, MapPin, User, Calendar, X } from 'lucide
 import Layout from '../components/Layout';
 import Avatar from '../components/Avatar';
 import Badge from '../components/Badge';
-import { getEmployees, getDepartments, getDesignations } from '../store/dataStore';
+import { useCompanyData } from '../hooks/useCompanyData';
 
 export default function Directory() {
   const [search, setSearch] = useState('');
   const [filterDept, setFilterDept] = useState('');
   const [selectedEmp, setSelectedEmp] = useState(null);
 
-  const employees = getEmployees().filter(e => e.status === 'active');
-  const departments = getDepartments();
-  const designations = getDesignations();
+  const { employees: allEmps, departments, designations, loading } = useCompanyData();
+  const employees = allEmps.filter(e => e.status === 'active');
 
   const filtered = employees.filter(e => {
     const s = search.toLowerCase();
-    const matchSearch = !search || e.name.toLowerCase().includes(s) || e.id.toLowerCase().includes(s) || e.email.toLowerCase().includes(s) || e.phone?.includes(s);
+    const matchSearch = !search || e.name.toLowerCase().includes(s) || (e.employeeCode || '').toLowerCase().includes(s) || e.email.toLowerCase().includes(s) || e.phone?.includes(s);
     const matchDept = !filterDept || e.departmentId === filterDept;
     return matchSearch && matchDept;
   });

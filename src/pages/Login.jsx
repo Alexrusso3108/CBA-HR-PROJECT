@@ -35,7 +35,7 @@ export default function Login() {
 
         {/* Spline 3D scene */}
         <iframe
-          src="https://my.spline.design/molang3dcopy-S3Rgo7qSnQYSuy1rFPR821hb/"
+          src="https://my.spline.design/3dpathsfactoryletterscopy-XthycEhd1WrvkY30bcKLoEpj/"
           frameBorder="0"
           title="Rev Workforce 3D Hero"
           style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', border: 'none', pointerEvents: 'auto' }}
@@ -43,10 +43,20 @@ export default function Login() {
           loading="eager"
         />
 
-        {/* Soft overlay */}
+        {/* Hide Spline watermark badge */}
+        <div style={{
+          position: 'absolute', bottom: 0, right: 0,
+          width: 220, height: 56,
+          background: 'linear-gradient(135deg, #b8c4ce, #c9d3db)',
+          zIndex: 10,
+          pointerEvents: 'none',
+          borderRadius: '8px 0 0 0',
+        }} />
+
+        {/* Dark overlay — strong enough for light Spline scenes */}
         <div style={{
           position: 'absolute', inset: 0,
-          background: 'linear-gradient(135deg, rgba(15,23,42,0.55) 0%, rgba(15,23,42,0.10) 60%, transparent 100%)',
+          background: 'linear-gradient(135deg, rgba(10,15,35,0.82) 0%, rgba(10,15,35,0.55) 50%, rgba(10,15,35,0.18) 100%)',
           pointerEvents: 'none',
         }} />
 
@@ -68,27 +78,34 @@ export default function Login() {
 
         {/* Hero copy */}
         <div style={{ position: 'absolute', bottom: 56, left: 40, right: 40, zIndex: 2 }}>
+          {/* Extra backdrop blur behind text */}
+          <div style={{
+            position: 'absolute', inset: '-24px -20px',
+            background: 'linear-gradient(to top, rgba(8,12,30,0.75) 0%, rgba(8,12,30,0.30) 70%, transparent 100%)',
+            borderRadius: 16, zIndex: -1, pointerEvents: 'none',
+          }} />
           <h1 style={{
             fontSize: 'clamp(28px, 3.2vw, 42px)', fontWeight: 900, color: '#fff',
             lineHeight: 1.15, marginBottom: 12, letterSpacing: -1,
-            textShadow: '0 2px 20px rgba(0,0,0,0.3)',
+            textShadow: '0 2px 24px rgba(0,0,0,0.8)',
           }}>
             Streamline your<br />
-            <span style={{ background: 'linear-gradient(90deg, #818cf8, #c084fc)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+            <span style={{ background: 'linear-gradient(90deg, #818cf8, #c084fc)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', filter: 'drop-shadow(0 2px 8px rgba(129,140,248,0.6))' }}>
               HR operations.
             </span>
           </h1>
-          <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.70)', lineHeight: 1.7, marginBottom: 24, maxWidth: 380 }}>
+          <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.90)', lineHeight: 1.7, marginBottom: 24, maxWidth: 380, textShadow: '0 1px 8px rgba(0,0,0,0.7)' }}>
             A unified platform for leave management, performance reviews, and employee records — built for enterprise teams.
           </p>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {['Leave Management', 'Performance Reviews', 'HR Analytics', 'Role-Based Access'].map((f) => (
               <span key={f} style={{
                 padding: '6px 13px', borderRadius: 99,
-                background: 'rgba(255,255,255,0.12)',
-                border: '1px solid rgba(255,255,255,0.20)',
-                fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.88)',
-                backdropFilter: 'blur(8px)', letterSpacing: 0.2,
+                background: 'rgba(255,255,255,0.15)',
+                border: '1px solid rgba(255,255,255,0.30)',
+                fontSize: 12, fontWeight: 600, color: '#fff',
+                backdropFilter: 'blur(12px)', letterSpacing: 0.2,
+                textShadow: '0 1px 4px rgba(0,0,0,0.5)',
               }}>
                 {f}
               </span>
