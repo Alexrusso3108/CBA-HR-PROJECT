@@ -1,107 +1,393 @@
+<<<<<<< HEAD
 import { useState } from 'react';
 import { Plus, Edit2, Search, AlertCircle, UserCheck, UserX } from 'lucide-react';
+=======
+import { useState, useEffect, useCallback } from 'react';
+import {
+  Plus, Edit2, UserX, UserCheck, Search,
+  AlertCircle, Copy, CheckCircle2, KeyRound, X, RefreshCw
+} from 'lucide-react';
+>>>>>>> d7bbb1ccf3a402a99d95a3f02adfbfcc1fecc004
 import Layout from '../../components/Layout';
 import Modal from '../../components/Modal';
 import Badge from '../../components/Badge';
 import Avatar from '../../components/Avatar';
-import { getEmployees, addEmployee, updateEmployee, deactivateEmployee, reactivateEmployee, getDepartments, getDesignations } from '../../store/dataStore';
+import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../context/AuthContext';
 
-const ROLES = ['employee', 'manager', 'admin'];
+// ALL supported roles — admin can assign any of these
+const ROLES = [
+  { value: 'employee', label: 'Employee', color: '#818cf8' },
+  { value: 'intern', label: 'Intern', color: '#94a3b8' },
+  { value: 'hr', label: 'HR', color: '#c084fc' },
+  { value: 'manager', label: 'Manager', color: '#38bdf8' },
+  { value: 'admin', label: 'Admin', color: '#34d399' },
+];
 
 const emptyForm = {
-  name: '', email: '', phone: '', address: '', dob: '', joiningDate: '',
-  departmentId: '', designationId: '', managerId: '', role: 'employee', salary: '', emergencyContact: '', password: 'password123',
+  name: '', email: '', phone: '', address: '', dob: '',
+  joiningDate: new Date().toISOString().split('T')[0],
+  departmentId: '', designationId: '', managerId: '',
+  role: 'employee', salary: '', emergencyContact: '',
+  password: 'Welcome@123',
 };
+
+// Helper: only pass UUIDs to Supabase — local store IDs like 'dept-1' are invalid
+const isUUID = v => v && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 
 export default function EmployeeManagement() {
   const [search, setSearch] = useState('');
   const [filterDept, setFilterDept] = useState('');
   const [filterRole, setFilterRole] = useState('');
+  const [tab, setTab] = useState('active');
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [formError, setFormError] = useState('');
   const [alert, setAlert] = useState(null);
+<<<<<<< HEAD
   const [, setRefresh] = useState(0);
   const [tab, setTab] = useState('active');
+=======
+>>>>>>> d7bbb1ccf3a402a99d95a3f02adfbfcc1fecc004
 
-  const departments = getDepartments();
-  const designations = getDesignations();
-  const allEmployees = getEmployees();
-  const managers = allEmployees.filter(e => e.role === 'manager' || e.role === 'admin');
+  // ── Data loaded from Supabase ──────────────────────────────────────
+  const [employees, setEmployees] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [designations, setDesignations] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  function showAlert(type, msg) { setAlert({ type, msg }); setTimeout(() => setAlert(null), 3500); }
+  // Credential card shown after successful add
+  const [newCreds, setNewCreds] = useState(null);
+  const [copiedField, setCopiedField] = useState('');
 
-  const filtered = allEmployees.filter(e => {
+  const { user: adminUser } = useAuth();
+
+  // ── Fetch all data from Supabase ───────────────────────────────────
+  const fetchAll = useCallback(async () => {
+    if (!adminUser?.company_id) return;
+    setLoading(true);
+    try {
+      const [empRes, deptRes, desRes] = await Promise.all([
+        supabase
+          .from('employees')
+          .select('*')
+          .eq('company_id', adminUser.company_id)
+          .order('created_at', { ascending: true }),
+        supabase
+          .from('departments')
+          .select('*')
+          .eq('company_id', adminUser.company_id)
+          .order('name'),
+        supabase
+          .from('designations')
+          .select('*')
+          .eq('company_id', adminUser.company_id)
+          .order('name'),
+      ]);
+
+      if (empRes.error) throw empRes.error;
+      if (deptRes.error) throw deptRes.error;
+      if (desRes.error) throw desRes.error;
+
+      // Normalise column names from DB → camelCase used by UI
+      const normEmp = (empRes.data || []).map(e => ({
+        id: e.id,
+        employeeCode: e.employee_code,
+        name: e.name,
+        email: e.email,
+        phone: e.phone,
+        address: e.address,
+        dob: e.dob,
+        joiningDate: e.joining_date,
+        departmentId: e.department_id,
+        designationId: e.designation_id,
+        managerId: e.manager_id,
+        role: e.role,
+        salary: e.salary,
+        status: e.status,
+        emergencyContact: e.emergency_contact,
+        avatar: e.avatar,
+        company_id: e.company_id,
+      }));
+
+      setEmployees(normEmp);
+      setDepartments(deptRes.data || []);
+      setDesignations((desRes.data || []).map(d => ({
+        id: d.id,
+        name: d.name,
+        deptId: d.dept_id,
+      })));
+    } catch (err) {
+      console.error('fetchAll error:', err);
+      showAlert('error', 'Failed to load employees: ' + (err?.message || 'Unknown error'));
+    } finally {
+      setLoading(false);
+    }
+  }, [adminUser?.company_id]);
+
+  useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  const managers = employees.filter(e => ['manager', 'admin', 'hr'].includes(e.role));
+
+  function showAlert(type, msg) {
+    setAlert({ type, msg });
+    setTimeout(() => setAlert(null), 3500);
+  }
+
+  function copyToClipboard(text, field) {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedField(field);
+      setTimeout(() => setCopiedField(''), 1500);
+    });
+  }
+
+  const filtered = employees.filter(e => {
     const matchStatus = tab === 'active' ? e.status === 'active' : e.status === 'inactive';
-    const matchSearch = !search || e.name.toLowerCase().includes(search.toLowerCase()) || e.id.toLowerCase().includes(search.toLowerCase()) || e.email.toLowerCase().includes(search.toLowerCase());
+    const matchSearch = !search ||
+      e.name.toLowerCase().includes(search.toLowerCase()) ||
+      (e.employeeCode || '').toLowerCase().includes(search.toLowerCase()) ||
+      e.email.toLowerCase().includes(search.toLowerCase());
     const matchDept = !filterDept || e.departmentId === filterDept;
     const matchRole = !filterRole || e.role === filterRole;
     return matchStatus && matchSearch && matchDept && matchRole;
   });
 
-  function openAdd() { setEditing(null); setForm(emptyForm); setFormError(''); setShowModal(true); }
-  function openEdit(emp) {
-    setEditing(emp);
-    setForm({ name: emp.name, email: emp.email, phone: emp.phone, address: emp.address, dob: emp.dob, joiningDate: emp.joiningDate, departmentId: emp.departmentId, designationId: emp.designationId, managerId: emp.managerId || '', role: emp.role, salary: emp.salary, emergencyContact: emp.emergencyContact, password: emp.password });
+  function openAdd() {
+    setEditing(null);
+    setForm(emptyForm);
     setFormError('');
     setShowModal(true);
   }
 
-  function handleSave() {
+  function openEdit(emp) {
+    setEditing(emp);
+    setForm({
+      name: emp.name,
+      email: emp.email,
+      phone: emp.phone || '',
+      address: emp.address || '',
+      dob: emp.dob || '',
+      joiningDate: emp.joiningDate || '',
+      departmentId: emp.departmentId || '',
+      designationId: emp.designationId || '',
+      managerId: emp.managerId || '',
+      role: emp.role,
+      salary: emp.salary || '',
+      emergencyContact: emp.emergencyContact || '',
+      password: '',
+    });
     setFormError('');
-    if (!form.name.trim()) { setFormError('Name is required.'); return; }
-    if (!form.email.trim()) { setFormError('Email is required.'); return; }
-    if (!form.departmentId) { setFormError('Please select a department.'); return; }
-    if (!form.designationId) { setFormError('Please select a designation.'); return; }
-    if (!form.joiningDate) { setFormError('Joining date is required.'); return; }
-
-    const data = { ...form, salary: Number(form.salary) || 0, managerId: form.managerId || null };
-    if (editing) {
-      updateEmployee(editing.id, data);
-      showAlert('success', 'Employee updated successfully!');
-    } else {
-      addEmployee(data);
-      showAlert('success', 'Employee added successfully!');
-    }
-    setShowModal(false);
-    setRefresh(r => r + 1);
+    setShowModal(true);
   }
 
-  function handleToggleStatus(emp) {
-    if (emp.status === 'active') {
-      if (!window.confirm(`Deactivate ${emp.name}?`)) return;
-      deactivateEmployee(emp.id);
-      showAlert('info', `${emp.name} deactivated.`);
-    } else {
-      reactivateEmployee(emp.id);
-      showAlert('success', `${emp.name} reactivated.`);
+  async function handleSave() {
+    setFormError('');
+    if (!form.name.trim()) return setFormError('Full name is required.');
+    if (!form.email.trim()) return setFormError('Work email is required.');
+    if (!form.joiningDate) return setFormError('Joining date is required.');
+    if (!form.role) return setFormError('Please select a role.');
+    if (!editing && !form.password.trim()) return setFormError('A temporary password is required.');
+
+    // Supabase CHECK only allows: admin|manager|hr|employee
+    // 'intern' is a display-only role — stored as 'employee' in DB
+    const dbRole = form.role === 'intern' ? 'employee' : form.role;
+
+    if (editing) {
+      // ── Update existing employee in Supabase ─────────────────────
+      try {
+        const updatePayload = {
+          name: form.name.trim(),
+          email: form.email.trim(),
+          phone: form.phone || null,
+          address: form.address || null,
+          dob: form.dob || null,
+          joining_date: form.joiningDate,
+          department_id: isUUID(form.departmentId) ? form.departmentId : null,
+          designation_id: isUUID(form.designationId) ? form.designationId : null,
+          manager_id: isUUID(form.managerId) ? form.managerId : null,
+          role: dbRole,
+          salary: Number(form.salary) || 0,
+          emergency_contact: form.emergencyContact || null,
+        };
+
+        const { error } = await supabase
+          .from('employees')
+          .update(updatePayload)
+          .eq('id', editing.id)
+          .eq('company_id', adminUser.company_id);
+
+        if (error) throw error;
+        showAlert('success', `${form.name} updated successfully!`);
+        setShowModal(false);
+        await fetchAll();
+      } catch (err) {
+        console.error('update employee error:', err);
+        setFormError(err?.message || 'Failed to update employee. Please try again.');
+      }
+      return;
     }
-    setRefresh(r => r + 1);
+
+    // ── Add via Supabase RPC ────────────────────────────────────────
+    try {
+      const { data, error } = await supabase.rpc('add_employee', {
+        p_company_id: adminUser?.company_id,
+        p_name: form.name.trim(),
+        p_email: form.email.trim(),
+        p_plain_password: form.password,
+        p_role: dbRole,
+        p_phone: form.phone || null,
+        p_dob: form.dob || null,
+        p_joining_date: form.joiningDate,
+        p_salary: Number(form.salary) || 0,
+        p_department_id: isUUID(form.departmentId) ? form.departmentId : null,
+        p_designation_id: isUUID(form.designationId) ? form.designationId : null,
+        p_manager_id: isUUID(form.managerId) ? form.managerId : null,
+        p_address: form.address || null,
+        p_emergency_contact: form.emergencyContact || null,
+      });
+
+      if (error) throw error;
+
+      const created = data?.[0];
+      setNewCreds({
+        name: created?.name || form.name,
+        id: created?.employee_code || '—',
+        email: created?.email || form.email,
+        role: form.role,
+        password: form.password,
+      });
+      showAlert('success', `${form.name} added! Share the credentials below.`);
+      setShowModal(false);
+      await fetchAll();
+    } catch (err) {
+      console.error('add_employee error:', err);
+      setFormError(err?.message || 'Failed to add employee. Please try again.');
+    }
+  }
+
+  async function handleToggleStatus(emp) {
+    const newStatus = emp.status === 'active' ? 'inactive' : 'active';
+    if (emp.status === 'active') {
+      if (!window.confirm(`Deactivate ${emp.name}? They will lose access.`)) return;
+    }
+    try {
+      const { error } = await supabase
+        .from('employees')
+        .update({ status: newStatus })
+        .eq('id', emp.id)
+        .eq('company_id', adminUser.company_id);
+      if (error) throw error;
+      showAlert(newStatus === 'active' ? 'success' : 'info',
+        `${emp.name} has been ${newStatus === 'active' ? 'reactivated' : 'deactivated'}.`);
+      await fetchAll();
+    } catch (err) {
+      console.error('toggle status error:', err);
+      showAlert('error', 'Failed to update status: ' + (err?.message || ''));
+    }
   }
 
   const deptName = id => departments.find(d => d.id === id)?.name || '—';
   const desName = id => designations.find(d => d.id === id)?.name || '—';
-  const mgrName = id => allEmployees.find(e => e.id === id)?.name || '—';
+  const mgrName = id => employees.find(e => e.id === id)?.name || '—';
+  const roleInfo = v => ROLES.find(r => r.value === v) || { color: '#94a3b8', label: v };
 
   return (
     <Layout title="Employee Management">
       {alert && <div className={`alert alert-${alert.type}`}>{alert.msg}</div>}
+
+      {/* Page Header */}
       <div className="page-header">
         <div className="page-header-left">
           <h1>Employee Management</h1>
-          <p>Add, update and manage all employee records</p>
+          <p>Add team members and manage their access credentials</p>
         </div>
-        <button className="btn btn-primary" onClick={openAdd}><Plus size={15} /> Add Employee</button>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button className="btn btn-secondary" onClick={fetchAll} title="Refresh" disabled={loading}>
+            <RefreshCw size={15} style={{ animation: loading ? 'spin 0.8s linear infinite' : 'none' }} />
+          </button>
+          <button className="btn btn-primary" onClick={openAdd}>
+            <Plus size={15} /> Add Employee
+          </button>
+        </div>
       </div>
+
+      {/* ── Credentials Card (shows after adding a new employee) ── */}
+      {newCreds && (
+        <div style={{
+          background: 'linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%)',
+          border: '1px solid rgba(129,140,248,0.35)',
+          borderRadius: 14, padding: '20px 24px',
+          marginBottom: 24, position: 'relative',
+          boxShadow: '0 8px 32px rgba(79,70,229,0.18)',
+        }}>
+          {/* Close */}
+          <button onClick={() => setNewCreds(null)} style={{
+            position: 'absolute', top: 14, right: 16,
+            background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.4)',
+            display: 'flex', padding: 4,
+          }}>
+            <X size={16} />
+          </button>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+            <KeyRound size={18} color="#818cf8" />
+            <span style={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>
+              New Employee Credentials — Share with {newCreds.name}
+            </span>
+            <span style={{
+              background: roleInfo(newCreds.role).color + '22',
+              color: roleInfo(newCreds.role).color,
+              border: `1px solid ${roleInfo(newCreds.role).color}55`,
+              padding: '2px 10px', borderRadius: 99, fontSize: 11.5, fontWeight: 700, textTransform: 'capitalize',
+            }}>
+              {newCreds.role}
+            </span>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+            {[
+              { label: 'Employee ID', value: newCreds.id, field: 'id' },
+              { label: 'Login Email', value: newCreds.email, field: 'email' },
+              { label: 'Temp Password', value: newCreds.password, field: 'pass' },
+            ].map(({ label, value, field }) => (
+              <div key={field} style={{
+                background: 'rgba(255,255,255,0.06)',
+                borderRadius: 10, padding: '12px 14px',
+                border: '1px solid rgba(255,255,255,0.10)',
+              }}>
+                <div style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.45)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 6 }}>
+                  {label}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                  <code style={{ color: '#e2e8f0', fontSize: 13.5, fontWeight: 700, fontFamily: 'monospace' }}>
+                    {value}
+                  </code>
+                  <button onClick={() => copyToClipboard(value, field)} style={{
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    color: copiedField === field ? '#34d399' : 'rgba(255,255,255,0.4)',
+                    display: 'flex', padding: 2, transition: 'color 0.2s',
+                  }}>
+                    {copiedField === field ? <CheckCircle2 size={14} /> : <Copy size={14} />}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ marginTop: 14, fontSize: 11.5, color: 'rgba(255,255,255,0.35)' }}>
+            ⚠️ Ask the employee to change their password after first login. This panel disappears once you close it.
+          </div>
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid-4" style={{ marginBottom: 24 }}>
         {[
-          { label: 'Total Employees', val: allEmployees.length, color: '#6c63ff' },
-          { label: 'Active', val: allEmployees.filter(e => e.status === 'active').length, color: '#38ef7d' },
-          { label: 'Departments', val: departments.length, color: '#38b2ac' },
-          { label: 'Managers', val: allEmployees.filter(e => e.role === 'manager').length, color: '#f6ad55' },
+          { label: 'Total Employees', val: employees.length, color: '#6c63ff' },
+          { label: 'Active', val: employees.filter(e => e.status === 'active').length, color: '#38ef7d' },
+          { label: 'Managers', val: employees.filter(e => e.role === 'manager').length, color: '#38bdf8' },
+          { label: 'HR Staff', val: employees.filter(e => e.role === 'hr').length, color: '#c084fc' },
         ].map(s => (
           <div key={s.label} className="stat-card">
             <div style={{ width: 12, height: 12, borderRadius: '50%', background: s.color, marginRight: 4, flexShrink: 0 }} />
@@ -121,92 +407,163 @@ export default function EmployeeManagement() {
             <option value="">All Departments</option>
             {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
-          <select className="form-select" style={{ width: 140 }} value={filterRole} onChange={e => setFilterRole(e.target.value)}>
+          <select className="form-select" style={{ width: 150 }} value={filterRole} onChange={e => setFilterRole(e.target.value)}>
             <option value="">All Roles</option>
-            {ROLES.map(r => <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>)}
+            {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
           </select>
           {(search || filterDept || filterRole) && (
-            <button className="btn btn-secondary btn-sm" onClick={() => { setSearch(''); setFilterDept(''); setFilterRole(''); }}>Clear</button>
+            <button className="btn btn-secondary btn-sm" onClick={() => { setSearch(''); setFilterDept(''); setFilterRole(''); }}>
+              Clear
+            </button>
           )}
         </div>
       </div>
 
+      {/* Tabs */}
       <div className="tabs">
-        <button className={`tab-btn ${tab === 'active' ? 'active' : ''}`} onClick={() => setTab('active')}>Active ({allEmployees.filter(e => e.status === 'active').length})</button>
-        <button className={`tab-btn ${tab === 'inactive' ? 'active' : ''}`} onClick={() => setTab('inactive')}>Inactive ({allEmployees.filter(e => e.status === 'inactive').length})</button>
+        <button className={`tab-btn ${tab === 'active' ? 'active' : ''}`} onClick={() => setTab('active')}>
+          Active ({employees.filter(e => e.status === 'active').length})
+        </button>
+        <button className={`tab-btn ${tab === 'inactive' ? 'active' : ''}`} onClick={() => setTab('inactive')}>
+          Inactive ({employees.filter(e => e.status === 'inactive').length})
+        </button>
       </div>
 
+      {/* Table */}
       <div className="card">
-        <div className="table-wrap">
-          <table className="data-table">
-            <thead>
-              <tr><th>Employee</th><th>ID</th><th>Department</th><th>Designation</th><th>Role</th><th>Manager</th><th>Joining Date</th><th>Status</th><th>Actions</th></tr>
-            </thead>
-            <tbody>
-              {filtered.length === 0 ? (
-                <tr><td colSpan={9}><div className="empty-state" style={{ padding: 32 }}><Search size={36} color="#cbd5e1" /><p>No employees found</p></div></td></tr>
-              ) : (
-                filtered.map(emp => (
-                  <tr key={emp.id}>
-                    <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <Avatar name={emp.name} size="sm" />
-                        <div>
-                          <div style={{ fontWeight: 600, color: 'var(--text-1)', fontSize: 13.5 }}>{emp.name}</div>
-                          <div style={{ fontSize: 11.5, color: 'var(--text-3)' }}>{emp.email}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--accent-light)' }}>{emp.id}</td>
-                    <td>{deptName(emp.departmentId)}</td>
-                    <td>{desName(emp.designationId)}</td>
-                    <td><span className="badge badge-info" style={{ textTransform: 'capitalize' }}>{emp.role}</span></td>
-                    <td style={{ fontSize: 12.5, color: 'var(--text-3)' }}>{emp.managerId ? mgrName(emp.managerId) : '—'}</td>
-                    <td style={{ fontSize: 12.5 }}>{emp.joiningDate}</td>
-                    <td><Badge status={emp.status} /></td>
-                    <td>
-                      <div style={{ display: 'flex', gap: 6 }}>
-                        <button className="btn btn-secondary btn-sm" onClick={() => openEdit(emp)}><Edit2 size={12} /></button>
-                        <button className={`btn btn-sm ${emp.status === 'active' ? 'btn-danger' : 'btn-success'}`} onClick={() => handleToggleStatus(emp)}>
-                          {emp.status === 'active' ? <UserX size={12} /> : <UserCheck size={12} />}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+        {loading ? (
+          <div className="empty-state" style={{ padding: 48 }}>
+            <div style={{ width: 32, height: 32, border: '3px solid rgba(79,70,229,0.2)', borderTopColor: '#4f46e5', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 12px' }} />
+            <p>Loading employees from database…</p>
+          </div>
+        ) : (
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Employee</th>
+                  <th>ID</th>
+                  <th>Department</th>
+                  <th>Designation</th>
+                  <th>Role</th>
+                  <th>Manager</th>
+                  <th>Joined</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.length === 0 ? (
+                  <tr><td colSpan={9}><div className="empty-state" style={{ padding: 32 }}><Search size={36} color="#cbd5e1" /><p>No employees found</p></div></td></tr>
+                ) : (
+                  filtered.map(emp => {
+                    const ri = roleInfo(emp.role);
+                    return (
+                      <tr key={emp.id}>
+                        <td>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <Avatar name={emp.name} size="sm" />
+                            <div>
+                              <div style={{ fontWeight: 600, color: 'var(--text-1)', fontSize: 13.5 }}>{emp.name}</div>
+                              <div style={{ fontSize: 11.5, color: 'var(--text-3)' }}>{emp.email}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td style={{ fontFamily: 'monospace', fontWeight: 700, color: 'var(--accent-light)', fontSize: 12.5 }}>{emp.employeeCode}</td>
+                        <td style={{ fontSize: 13, color: 'var(--text-2)' }}>{deptName(emp.departmentId)}</td>
+                        <td style={{ fontSize: 13, color: 'var(--text-2)' }}>{desName(emp.designationId)}</td>
+                        <td>
+                          <span style={{
+                            padding: '3px 10px', borderRadius: 99, fontSize: 11.5, fontWeight: 700,
+                            background: ri.color + '18', color: ri.color,
+                            border: `1px solid ${ri.color}40`, textTransform: 'capitalize',
+                          }}>
+                            {ri.label}
+                          </span>
+                        </td>
+                        <td style={{ fontSize: 12.5, color: 'var(--text-3)' }}>{emp.managerId ? mgrName(emp.managerId) : '—'}</td>
+                        <td style={{ fontSize: 12.5 }}>{emp.joiningDate || '—'}</td>
+                        <td><Badge status={emp.status} /></td>
+                        <td>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button className="btn btn-secondary btn-sm" onClick={() => openEdit(emp)} title="Edit">
+                              <Edit2 size={12} />
+                            </button>
+                            <button
+                              className={`btn btn-sm ${emp.status === 'active' ? 'btn-danger' : 'btn-success'}`}
+                              onClick={() => handleToggleStatus(emp)}
+                              title={emp.status === 'active' ? 'Deactivate' : 'Reactivate'}
+                            >
+                              {emp.status === 'active' ? <UserX size={12} /> : <UserCheck size={12} />}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
-      {/* Add/Edit Modal */}
-      <Modal isOpen={showModal} onClose={() => setShowModal(false)} title={editing ? `Edit: ${editing.name}` : 'Add New Employee'} size="lg"
+      {/* ── Add / Edit Modal ──────────────────────────────────── */}
+      <Modal
+        isOpen={showModal}
+        onClose={() => setShowModal(false)}
+        title={editing ? `Edit: ${editing.name}` : 'Add New Employee'}
+        size="lg"
         footer={
           <>
             <button className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancel</button>
-            <button className="btn btn-primary" onClick={handleSave}>{editing ? 'Save Changes' : 'Add Employee'}</button>
+            <button className="btn btn-primary" onClick={handleSave}>
+              {editing ? 'Save Changes' : 'Add Employee'}
+            </button>
           </>
         }
       >
-        {formError && <div className="alert alert-error"><AlertCircle size={14} /> {formError}</div>}
+        {formError && (
+          <div className="alert alert-error" style={{ marginBottom: 14 }}>
+            <AlertCircle size={14} /> {formError}
+          </div>
+        )}
+
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+
+          {/* Basic fields */}
           {[
-            { label: 'Full Name', key: 'name', placeholder: 'John Doe' },
-            { label: 'Email', key: 'email', placeholder: 'john@company.com' },
+            { label: 'Full Name *', key: 'name', placeholder: 'e.g. John Doe' },
+            { label: 'Work Email *', key: 'email', placeholder: 'e.g. john@company.com' },
             { label: 'Phone', key: 'phone', placeholder: '9876543210' },
-            { label: 'Emergency Contact', key: 'emergencyContact', placeholder: 'Contact number' },
+            { label: 'Emergency Contact', key: 'emergencyContact', placeholder: 'Emergency number' },
             { label: 'Date of Birth', key: 'dob', type: 'date' },
-            { label: 'Joining Date', key: 'joiningDate', type: 'date' },
+            { label: 'Joining Date *', key: 'joiningDate', type: 'date' },
             { label: 'Salary (₹)', key: 'salary', type: 'number', placeholder: '50000' },
-            { label: 'Default Password', key: 'password', placeholder: 'password123' },
           ].map(f => (
             <div key={f.key} className="form-group">
               <label className="form-label">{f.label}</label>
-              <input className="form-input" type={f.type || 'text'} placeholder={f.placeholder} value={form[f.key]} onChange={e => setForm({ ...form, [f.key]: e.target.value })} />
+              <input
+                className="form-input"
+                type={f.type || 'text'}
+                placeholder={f.placeholder}
+                value={form[f.key]}
+                onChange={e => setForm({ ...form, [f.key]: e.target.value })}
+              />
             </div>
           ))}
 
+          {/* Role */}
+          <div className="form-group">
+            <label className="form-label">Role *</label>
+            <select className="form-select" value={form.role} onChange={e => setForm({ ...form, role: e.target.value })}>
+              {ROLES.map(r => (
+                <option key={r.value} value={r.value}>{r.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Department */}
           <div className="form-group">
             <label className="form-label">Department</label>
             <select className="form-select" value={form.departmentId} onChange={e => setForm({ ...form, departmentId: e.target.value, designationId: '' })}>
@@ -214,32 +571,61 @@ export default function EmployeeManagement() {
               {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
           </div>
+
+          {/* Designation */}
           <div className="form-group">
             <label className="form-label">Designation</label>
             <select className="form-select" value={form.designationId} onChange={e => setForm({ ...form, designationId: e.target.value })}>
               <option value="">Select Designation</option>
-              {designations.filter(d => !form.departmentId || d.deptId === form.departmentId).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+              {designations.filter(d => !form.departmentId || d.deptId === form.departmentId).map(d => (
+                <option key={d.id} value={d.id}>{d.name}</option>
+              ))}
             </select>
           </div>
-          <div className="form-group">
-            <label className="form-label">Role</label>
-            <select className="form-select" value={form.role} onChange={e => setForm({ ...form, role: e.target.value })}>
-              {ROLES.map(r => <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>)}
-            </select>
-          </div>
+
+          {/* Manager */}
           <div className="form-group">
             <label className="form-label">Reporting Manager</label>
             <select className="form-select" value={form.managerId} onChange={e => setForm({ ...form, managerId: e.target.value })}>
               <option value="">None (Top Level)</option>
-              {managers.filter(m => !editing || m.id !== editing.id).map(m => <option key={m.id} value={m.id}>{m.name} ({m.id})</option>)}
+              {managers.filter(m => !editing || m.id !== editing.id).map(m => (
+                <option key={m.id} value={m.id}>{m.name} ({m.role})</option>
+              ))}
             </select>
           </div>
+
+          {/* Temp Password — only required when adding */}
+          <div className="form-group">
+            <label className="form-label">Temporary Password {!editing && '*'}</label>
+            <input
+              className="form-input"
+              type="text"
+              value={form.password}
+              onChange={e => setForm({ ...form, password: e.target.value })}
+              placeholder={editing ? 'Leave blank to keep current password' : 'e.g. Welcome@123'}
+            />
+            <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>
+              {editing
+                ? 'Leave blank to keep the current password unchanged.'
+                : 'Employee must change this after first login.'}
+            </div>
+          </div>
+
+          {/* Address full width */}
           <div className="form-group" style={{ gridColumn: '1 / -1' }}>
             <label className="form-label">Address</label>
-            <textarea className="form-textarea" rows={2} value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} placeholder="Full address" />
+            <textarea
+              className="form-textarea"
+              rows={2}
+              value={form.address}
+              onChange={e => setForm({ ...form, address: e.target.value })}
+              placeholder="Full address"
+            />
           </div>
         </div>
       </Modal>
+
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </Layout>
   );
 }

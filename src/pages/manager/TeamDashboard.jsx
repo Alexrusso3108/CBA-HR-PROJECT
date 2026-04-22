@@ -1,26 +1,19 @@
 import { Users, TrendingUp, CalendarDays, Target } from 'lucide-react';
 import Layout from '../../components/Layout';
 import Avatar from '../../components/Avatar';
-import Badge from '../../components/Badge';
 import { useAuth } from '../../context/AuthContext';
-import { getTeamMembers, getLeaveApplications, getGoals, getDepartments, getDesignations } from '../../store/dataStore';
+import { useCompanyData } from '../../hooks/useCompanyData';
 
 export default function TeamDashboard() {
   const { user } = useAuth();
-  const team = getTeamMembers(user.id);
+  const { employees, leaveApplications, designations, departments, loading } = useCompanyData();
+
+  const team = employees.filter(e => e.managerId === user.id);
   const teamIds = team.map(e => e.id);
-  const teamLeaves = getLeaveApplications({ teamIds });
-  const teamGoals = getGoals({ teamIds });
-  const departments = getDepartments();
-  const designations = getDesignations();
 
-  const onLeaveToday = teamLeaves.filter(a => {
-    if (a.status !== 'approved') return false;
-    const now = new Date().toISOString().split('T')[0];
-    return a.fromDate <= now && a.toDate >= now;
-  });
-
-  const goalProgress = teamIds.length > 0 ? Math.round(teamGoals.reduce((acc, g) => acc + g.progress, 0) / (teamGoals.length || 1)) : 0;
+  const today = new Date().toISOString().split('T')[0];
+  const teamLeaves = leaveApplications.filter(a => teamIds.includes(a.employeeId));
+  const onLeaveToday = teamLeaves.filter(a => a.status === 'approved' && a.fromDate <= today && a.toDate >= today);
 
   return (
     <Layout title="Team Dashboard">
@@ -34,10 +27,10 @@ export default function TeamDashboard() {
       {/* Stats */}
       <div className="grid-4" style={{ marginBottom: 24 }}>
         {[
-          { label: 'Team Size', value: team.length, icon: Users, color: '#6c63ff', sub: 'Direct reports' },
-          { label: 'On Leave Today', value: onLeaveToday.length, icon: CalendarDays, color: '#fc5c7d', sub: 'Approved' },
-          { label: 'Total Goals', value: teamGoals.length, icon: Target, color: '#38ef7d', sub: `${teamGoals.filter(g => g.status === 'completed').length} completed` },
-          { label: 'Avg Goal Progress', value: `${goalProgress}%`, icon: TrendingUp, color: '#f6ad55', sub: 'Across all goals' },
+          { label: 'Team Size', value: loading ? '…' : team.length, icon: Users, color: '#6c63ff', sub: 'Direct reports' },
+          { label: 'On Leave Today', value: loading ? '…' : onLeaveToday.length, icon: CalendarDays, color: '#fc5c7d', sub: 'Approved' },
+          { label: 'Total Leaves', value: loading ? '…' : teamLeaves.length, icon: Target, color: '#38ef7d', sub: `${teamLeaves.filter(l => l.status === 'approved').length} approved` },
+          { label: 'Pending Approval', value: loading ? '…' : teamLeaves.filter(l => l.status === 'pending').length, icon: TrendingUp, color: '#f6ad55', sub: 'Awaiting your review' },
         ].map(s => (
           <div key={s.label} className="stat-card">
             <div className="stat-icon" style={{ background: `${s.color}18` }}>
@@ -56,7 +49,9 @@ export default function TeamDashboard() {
         {/* Team Members */}
         <div className="card">
           <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-1)', marginBottom: 16 }}>Team Members</div>
-          {team.length === 0 ? (
+          {loading ? (
+            <div className="empty-state" style={{ padding: 24 }}><p>Loading…</p></div>
+          ) : team.length === 0 ? (
             <div className="empty-state" style={{ padding: 24 }}><Users size={36} color="#cbd5e1" /><p>No team members assigned</p></div>
           ) : (
             team.map(emp => {
@@ -68,68 +63,41 @@ export default function TeamDashboard() {
                   <Avatar name={emp.name} size="md" />
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 600, color: 'var(--text-1)', fontSize: 14 }}>{emp.name}</div>
-                    <div style={{ fontSize: 12, color: 'var(--text-3)' }}>{des?.name} · {dept?.name}</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-3)' }}>{des?.name || '—'} · {dept?.name || '—'}</div>
                   </div>
-                  {isOnLeave ? (
-                    <span className="badge badge-pending">On Leave</span>
-                  ) : (
-                    <span className="badge badge-active">Active</span>
-                  )}
+                  {isOnLeave
+                    ? <span className="badge badge-pending">On Leave</span>
+                    : <span className="badge badge-active">Active</span>}
                 </div>
               );
             })
           )}
         </div>
 
-        {/* Team Goals Summary */}
+        {/* On Leave Today / Recent Leaves */}
         <div className="card">
-          <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-1)', marginBottom: 16 }}>Team Goals Progress</div>
-          {teamGoals.length === 0 ? (
-            <div className="empty-state" style={{ padding: 24 }}><Target size={36} color="#cbd5e1" /><p>No goals set yet</p></div>
+          <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-1)', marginBottom: 16 }}>
+            {onLeaveToday.length > 0 ? 'On Leave Today' : 'Recent Leave Requests'}
+          </div>
+          {(onLeaveToday.length > 0 ? onLeaveToday : teamLeaves.slice(0, 6)).length === 0 ? (
+            <div className="empty-state" style={{ padding: 24 }}><CalendarDays size={36} color="#cbd5e1" /><p>No leave requests yet</p></div>
           ) : (
-            team.map(emp => {
-              const empGoals = teamGoals.filter(g => g.employeeId === emp.id);
-              if (empGoals.length === 0) return null;
-              const avgPct = Math.round(empGoals.reduce((a, g) => a + g.progress, 0) / empGoals.length);
-              return (
-                <div key={emp.id} style={{ marginBottom: 14 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <Avatar name={emp.name} size="sm" />
-                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)' }}>{emp.name}</span>
-                    </div>
-                    <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{empGoals.filter(g => g.status === 'completed').length}/{empGoals.length} done · {avgPct}%</span>
+            (onLeaveToday.length > 0 ? onLeaveToday : teamLeaves.slice(0, 6)).map(a => {
+              const emp = employees.find(e => e.id === a.employeeId);
+              return emp ? (
+                <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
+                  <Avatar name={emp.name} size="sm" />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)' }}>{emp.name}</div>
+                    <div style={{ fontSize: 11.5, color: 'var(--text-3)' }}>{a.type} · {a.fromDate} – {a.toDate}</div>
                   </div>
-                  <div className="progress-bar"><div className="progress-fill" style={{ width: `${avgPct}%` }} /></div>
+                  <span className={`badge badge-${a.status === 'approved' ? 'active' : a.status === 'pending' ? 'pending' : 'inactive'}`}>{a.status}</span>
                 </div>
-              );
+              ) : null;
             })
           )}
         </div>
       </div>
-
-      {/* On Leave Today */}
-      {onLeaveToday.length > 0 && (
-        <div className="card" style={{ marginTop: 20 }}>
-          <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-1)', marginBottom: 16 }}>
-            Team On Leave Today
-          </div>
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-            {onLeaveToday.map(a => {
-              const emp = team.find(e => e.id === a.employeeId);
-              return emp ? (
-                <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', background: 'var(--bg-surface)', borderRadius: 10 }}>
-                  <Avatar name={emp.name} size="sm" />
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)' }}>{emp.name}</div>
-                    <div style={{ fontSize: 11.5, color: 'var(--text-3)' }}>{a.type} · till {a.toDate}</div>
-                  </div>
-                </div>
-              ) : null;
-            })}
-          </div>
-        </div>
-      )}
     </Layout>
   );
 }

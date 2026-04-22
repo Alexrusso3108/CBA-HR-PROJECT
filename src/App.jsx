@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 
 // Pages
 import Login from './pages/Login';
+import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import Profile from './pages/Profile';
 import LeaveManagement from './pages/LeaveManagement';
@@ -41,6 +42,7 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={user ? <Navigate to="/dashboard" replace /> : <Login />} />
+      <Route path="/register" element={user ? <Navigate to="/dashboard" replace /> : <Register />} />
 
       {/* Common */}
       <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
