@@ -1,11 +1,11 @@
-import { useState } from 'react';
-import { Check, X, AlertCircle } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { Check, X, AlertCircle, CalendarDays } from 'lucide-react';
 import Layout from '../../components/Layout';
 import Modal from '../../components/Modal';
 import Badge from '../../components/Badge';
 import Avatar from '../../components/Avatar';
 import { useAuth } from '../../context/AuthContext';
-import { getTeamMembers, getLeaveApplications, getLeaveBalance, reviewLeave, getEmployee } from '../../store/dataStore';
+import { getTeamMembers, getLeaveApplications, getLeaveBalance, reviewLeave } from '../../store/dataStore';
 
 const LEAVE_LABELS = { CL: 'Casual Leave', SL: 'Sick Leave', PL: 'Paid Leave' };
 
@@ -20,7 +20,7 @@ export default function TeamLeaves() {
   const [comment, setComment] = useState('');
   const [modalAction, setModalAction] = useState('');
   const [alert, setAlert] = useState(null);
-  const [refresh, setRefresh] = useState(0);
+  const [, setRefresh] = useState(0);
 
   const team = getTeamMembers(user.id);
   const teamIds = team.map(e => e.id);
@@ -50,6 +50,37 @@ export default function TeamLeaves() {
   }
 
   const displayed = tab === 'pending' ? pending : reviewed;
+
+  // Team mini leave calendar
+  const today = new Date();
+  const [calMonth, setCalMonth] = useState(today.getMonth());
+  const [calYear, setCalYear] = useState(today.getFullYear());
+
+  const calDays = useMemo(() => {
+    const first = new Date(calYear, calMonth, 1);
+    const last = new Date(calYear, calMonth + 1, 0);
+    const cells = [];
+    for (let i = 0; i < first.getDay(); i++) cells.push(null);
+    for (let d = 1; d <= last.getDate(); d++) cells.push(d);
+    return cells;
+  }, [calMonth, calYear]);
+
+  // Map of day -> number of team members on approved leave
+  const leaveCountByDay = {};
+  allApps.forEach((a) => {
+    if (a.status !== 'approved') return;
+    let d = new Date(a.fromDate);
+    const end = new Date(a.toDate);
+    while (d <= end) {
+      if (d.getMonth() === calMonth && d.getFullYear() === calYear) {
+        const day = d.getDate();
+        leaveCountByDay[day] = (leaveCountByDay[day] || 0) + 1;
+      }
+      d.setDate(d.getDate() + 1);
+    }
+  });
+
+  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
   return (
     <Layout title="Team Leaves">
@@ -100,50 +131,123 @@ export default function TeamLeaves() {
           Pending {pending.length > 0 && <span className="nav-badge" style={{ position: 'static', marginLeft: 6 }}>{pending.length}</span>}
         </button>
         <button className={`tab-btn ${tab === 'history' ? 'active' : ''}`} onClick={() => setTab('history')}>History</button>
+        <button className={`tab-btn ${tab === 'calendar' ? 'active' : ''}`} onClick={() => setTab('calendar')}>Team Calendar</button>
       </div>
 
-      <div className="card">
-        <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-1)', marginBottom: 16 }}>
-          {tab === 'pending' ? 'Pending Requests' : 'Reviewed Applications'} ({displayed.length})
-        </div>
-        {displayed.length === 0 ? (
-          <div className="empty-state"><CalendarDays size={40} color="#cbd5e1" /><h3>All up to date</h3><p>No {tab === 'pending' ? 'pending' : ''} leave requests at this time.</p></div>
-        ) : (
-          <div className="table-wrap">
-            <table className="data-table">
-              <thead>
-                <tr><th>Employee</th><th>Leave Type</th><th>From</th><th>To</th><th>Days</th><th>Reason</th><th>Applied</th><th>Status</th>{tab === 'pending' && <th>Actions</th>}</tr>
-              </thead>
-              <tbody>
-                {displayed.map(a => (
-                  <tr key={a.id}>
-                    <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <Avatar name={getEmpName(a.employeeId)} size="sm" />
-                        <span style={{ fontWeight: 600, color: 'var(--text-1)' }}>{getEmpName(a.employeeId)}</span>
-                      </div>
-                    </td>
-                    <td style={{ fontWeight: 600, color: a.type === 'CL' ? '#6c63ff' : a.type === 'SL' ? '#38b2ac' : '#f6ad55' }}>{LEAVE_LABELS[a.type]}</td>
-                    <td>{a.fromDate}</td><td>{a.toDate}</td>
-                    <td style={{ fontWeight: 700 }}>{daysBetween(a.fromDate, a.toDate)}</td>
-                    <td style={{ maxWidth: 180 }}><span className="truncate" style={{ display: 'block', fontSize: 12.5 }}>{a.reason}</span></td>
-                    <td style={{ fontSize: 12.5, color: 'var(--text-3)' }}>{a.appliedOn}</td>
-                    <td><Badge status={a.status} /></td>
-                    {tab === 'pending' && (
+      {/* Pending / History tables */}
+      {(tab === 'pending' || tab === 'history') && (
+        <div className="card">
+          <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-1)', marginBottom: 16 }}>
+            {tab === 'pending' ? 'Pending Requests' : 'Reviewed Applications'} ({displayed.length})
+          </div>
+          {displayed.length === 0 ? (
+            <div className="empty-state"><CalendarDays size={40} color="#cbd5e1" /><h3>All up to date</h3><p>No {tab === 'pending' ? 'pending' : ''} leave requests at this time.</p></div>
+          ) : (
+            <div className="table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr><th>Employee</th><th>Leave Type</th><th>From</th><th>To</th><th>Days</th><th>Reason</th><th>Applied</th><th>Status</th>{tab === 'pending' && <th>Actions</th>}</tr>
+                </thead>
+                <tbody>
+                  {displayed.map(a => (
+                    <tr key={a.id}>
                       <td>
-                        <div style={{ display: 'flex', gap: 6 }}>
-                          <button className="btn btn-success btn-sm" onClick={() => openReview(a, 'approved')}><Check size={13} /> Approve</button>
-                          <button className="btn btn-danger btn-sm" onClick={() => openReview(a, 'rejected')}><X size={13} /> Reject</button>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <Avatar name={getEmpName(a.employeeId)} size="sm" />
+                          <span style={{ fontWeight: 600, color: 'var(--text-1)' }}>{getEmpName(a.employeeId)}</span>
                         </div>
                       </td>
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                      <td style={{ fontWeight: 600, color: a.type === 'CL' ? '#6c63ff' : a.type === 'SL' ? '#38b2ac' : '#f6ad55' }}>{LEAVE_LABELS[a.type]}</td>
+                      <td>{a.fromDate}</td><td>{a.toDate}</td>
+                      <td style={{ fontWeight: 700 }}>{daysBetween(a.fromDate, a.toDate)}</td>
+                      <td style={{ maxWidth: 180 }}><span className="truncate" style={{ display: 'block', fontSize: 12.5 }}>{a.reason}</span></td>
+                      <td style={{ fontSize: 12.5, color: 'var(--text-3)' }}>{a.appliedOn}</td>
+                      <td><Badge status={a.status} /></td>
+                      {tab === 'pending' && (
+                        <td>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button className="btn btn-success btn-sm" onClick={() => openReview(a, 'approved')}><Check size={13} /> Approve</button>
+                            <button className="btn btn-danger btn-sm" onClick={() => openReview(a, 'rejected')}><X size={13} /> Reject</button>
+                          </div>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Team leave calendar */}
+      {tab === 'calendar' && (
+        <div className="card">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-1)', marginBottom: 4 }}>Team Leave Calendar</div>
+              <div style={{ fontSize: 12.5, color: 'var(--text-3)' }}>See which days your team members are on approved leave</div>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => {
+                  if (calMonth === 0) {
+                    setCalMonth(11);
+                    setCalYear(y => y - 1);
+                  } else {
+                    setCalMonth(m => m - 1);
+                  }
+                }}
+              >
+                ‹
+              </button>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => {
+                  if (calMonth === 11) {
+                    setCalMonth(0);
+                    setCalYear(y => y + 1);
+                  } else {
+                    setCalMonth(m => m + 1);
+                  }
+                }}
+              >
+                ›
+              </button>
+            </div>
           </div>
-        )}
-      </div>
+
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-2)', marginBottom: 10 }}>
+            {monthNames[calMonth]} {calYear}
+          </div>
+
+          <div className="calendar-grid">
+            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+              <div key={d} className="cal-header">{d}</div>
+            ))}
+            {calDays.map((d, i) => {
+              if (!d) return <div key={i} className="cal-day other-month" />;
+              const isToday = d === today.getDate() && calMonth === today.getMonth() && calYear === today.getFullYear();
+              const count = leaveCountByDay[d] || 0;
+              const hasLeave = count > 0;
+              const cls = `cal-day${isToday ? ' today' : ''}${hasLeave ? ' leave' : ''}`;
+              return (
+                <div key={i} className={cls}>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                    <span>{d}</span>
+                    {hasLeave && (
+                      <span style={{ fontSize: 9.5, color: '#059669', fontWeight: 700 }}>
+                        {count} on leave
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <Modal isOpen={!!selectedApp} onClose={() => setSelectedApp(null)} title={`${modalAction === 'approved' ? 'Approve' : 'Reject'} Leave Request`} size="sm"
         footer={

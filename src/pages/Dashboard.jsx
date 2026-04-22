@@ -1,13 +1,13 @@
-import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CalendarDays, Target, FileText, Users, ArrowRight, CheckCircle2, Clock, XCircle, TrendingUp, Award, Megaphone } from 'lucide-react';
 import Layout from '../components/Layout';
 import Avatar from '../components/Avatar';
 import Badge from '../components/Badge';
+import AiAssistantPanel from '../components/AiAssistantPanel';
 import { useAuth } from '../context/AuthContext';
 import {
   getLeaveBalance, getLeaveApplications, getGoals, getAnnouncements,
-  getEmployees, getPerformanceReviews
+  getEmployees,
 } from '../store/dataStore';
 
 export default function Dashboard() {
@@ -17,35 +17,42 @@ export default function Dashboard() {
   const bal = getLeaveBalance(user.id);
   const myLeaves = getLeaveApplications({ employeeId: user.id });
   const myGoals = getGoals({ employeeId: user.id });
-  const myReviews = getPerformanceReviews({ employeeId: user.id });
   const announcements = getAnnouncements().slice(0, 3);
   const employees = getEmployees().filter(e => e.status === 'active');
 
   const today = new Date();
   const todayStr = today.toISOString().split('T')[0];
 
-  const birthdays = useMemo(() => employees.filter(e =>
-    e.id !== user.id && e.dob && new Date(e.dob).getMonth() === today.getMonth() && new Date(e.dob).getDate() === today.getDate()
-  ), [employees]);
+  const birthdays = employees.filter(
+    (e) =>
+      e.id !== user.id &&
+      e.dob &&
+      new Date(e.dob).getMonth() === today.getMonth() &&
+      new Date(e.dob).getDate() === today.getDate(),
+  );
 
-  const upcomingBirthdays = useMemo(() => employees
-    .filter(e => e.id !== user.id && e.dob)
-    .filter(e => {
+  const upcomingBirthdays = employees
+    .filter((e) => e.id !== user.id && e.dob)
+    .filter((e) => {
       const d = new Date(e.dob);
       const next = new Date(today.getFullYear(), d.getMonth(), d.getDate());
       if (next < today) next.setFullYear(today.getFullYear() + 1);
       return Math.ceil((next - today) / 86400000) <= 14;
     })
     .sort((a, b) => {
-      const da = new Date(a.dob), db = new Date(b.dob);
-      return (da.getMonth() * 31 + da.getDate()) - (db.getMonth() * 31 + db.getDate());
-    }).slice(0, 5), [employees]);
+      const da = new Date(a.dob);
+      const db = new Date(b.dob);
+      return da.getMonth() * 31 + da.getDate() - (db.getMonth() * 31 + db.getDate());
+    })
+    .slice(0, 5);
 
-  const anniversaries = useMemo(() => employees.filter(e =>
-    e.id !== user.id && e.joiningDate &&
-    new Date(e.joiningDate).getMonth() === today.getMonth() &&
-    new Date(e.joiningDate).getDate() === today.getDate()
-  ), [employees]);
+  const anniversaries = employees.filter(
+    (e) =>
+      e.id !== user.id &&
+      e.joiningDate &&
+      new Date(e.joiningDate).getMonth() === today.getMonth() &&
+      new Date(e.joiningDate).getDate() === today.getDate(),
+  );
 
   const completedGoals = myGoals.filter(g => g.status === 'completed').length;
   const onLeave = myLeaves.some(l => l.status === 'approved' && l.fromDate <= todayStr && l.toDate >= todayStr);
@@ -228,6 +235,11 @@ export default function Dashboard() {
             ))
           )}
         </div>
+      </div>
+
+      <div className="grid-2" style={{ marginBottom: 24 }}>
+        {/* AI Assistant side panel */}
+        <AiAssistantPanel />
       </div>
 
       {/* Birthdays & Anniversaries */}

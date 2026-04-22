@@ -23,7 +23,7 @@ export default function HRLeaveOversight() {
   const [modalAction, setModalAction] = useState('');
   const [comment, setComment] = useState('');
   const [alert, setAlert] = useState(null);
-  const [refresh, setRefresh] = useState(0);
+  const [, setRefresh] = useState(0);
 
   const employees = getEmployees();
   const departments = getDepartments();
@@ -138,7 +138,7 @@ export default function HRLeaveOversight() {
                 <tr><td colSpan={10}><div className="empty-state" style={{ padding: 32 }}><CalendarDays size={36} color="#cbd5e1" /><p>No leave applications found</p></div></td></tr>
               ) : (
                 displayed.map(l => {
-                  const { name, dept, emp } = getEmpInfo(l.employeeId);
+                  const { name, dept } = getEmpInfo(l.employeeId);
                   const bal = getLeaveBalance(l.employeeId);
                   return (
                     <tr key={l.id}>

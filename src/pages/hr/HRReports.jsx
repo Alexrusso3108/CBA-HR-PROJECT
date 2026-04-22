@@ -1,4 +1,3 @@
-import { useMemo } from 'react';
 import { BarChart2, Download, Users, CalendarDays, TrendingUp, Building } from 'lucide-react';
 import Layout from '../../components/Layout';
 import { getEmployees, getDepartments, getLeaveApplications, getGoals, getPerformanceReviews } from '../../store/dataStore';
@@ -24,12 +23,14 @@ export default function HRReports() {
   const inactive = employees.filter(e => e.status === 'inactive');
 
   // Dept-wise headcount
-  const deptStats = useMemo(() => departments.map(d => ({
-    name: d.name,
-    active: active.filter(e => e.departmentId === d.id).length,
-    inactive: inactive.filter(e => e.departmentId === d.id).length,
-    managers: active.filter(e => e.departmentId === d.id && e.role === 'manager').length,
-  })).filter(d => d.active > 0 || d.inactive > 0), [active, inactive, departments]);
+  const deptStats = departments
+    .map((d) => ({
+      name: d.name,
+      active: active.filter((e) => e.departmentId === d.id).length,
+      inactive: inactive.filter((e) => e.departmentId === d.id).length,
+      managers: active.filter((e) => e.departmentId === d.id && e.role === 'manager').length,
+    }))
+    .filter((d) => d.active > 0 || d.inactive > 0);
 
   // Leave stats
   const leaveByType = { CL: 0, SL: 0, PL: 0 };

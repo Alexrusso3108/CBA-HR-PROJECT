@@ -25,7 +25,7 @@ export default function LeaveManagement() {
   const [form, setForm] = useState({ type: 'CL', fromDate: '', toDate: '', reason: '' });
   const [formError, setFormError] = useState('');
   const [alert, setAlert] = useState(null);
-  const [refresh, setRefresh] = useState(0);
+  const [, setRefresh] = useState(0);
 
   const balance = getLeaveBalance(user.id);
   const applications = getLeaveApplications({ employeeId: user.id });
@@ -60,7 +60,6 @@ export default function LeaveManagement() {
   }
 
   const pendingApps = applications.filter(a => a.status === 'pending');
-  const approvedApps = applications.filter(a => a.status === 'approved');
 
   // Mini calendar
   const today = new Date();
@@ -80,20 +79,17 @@ export default function LeaveManagement() {
     return d.getMonth() === calMonth && d.getFullYear() === calYear;
   }).map(h => new Date(h.date).getDate()));
 
-  const leaveDates = useMemo(() => {
-    const set = new Set();
-    applications.forEach(a => {
-      if (a.status === 'approved') {
-        let d = new Date(a.fromDate);
-        const end = new Date(a.toDate);
-        while (d <= end) {
-          if (d.getMonth() === calMonth && d.getFullYear() === calYear) set.add(d.getDate());
-          d.setDate(d.getDate() + 1);
-        }
+  const leaveDates = new Set();
+  applications.forEach((a) => {
+    if (a.status === 'approved') {
+      let d = new Date(a.fromDate);
+      const end = new Date(a.toDate);
+      while (d <= end) {
+        if (d.getMonth() === calMonth && d.getFullYear() === calYear) leaveDates.add(d.getDate());
+        d.setDate(d.getDate() + 1);
       }
-    });
-    return set;
-  }, [applications, calMonth, calYear]);
+    }
+  });
 
   const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 

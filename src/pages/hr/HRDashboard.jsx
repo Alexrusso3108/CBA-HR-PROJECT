@@ -1,4 +1,3 @@
-import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Users, CalendarDays, TrendingUp, Target, ArrowRight, Building, FileText } from 'lucide-react';
 import Layout from '../../components/Layout';
@@ -7,7 +6,7 @@ import Badge from '../../components/Badge';
 import { useAuth } from '../../context/AuthContext';
 import {
   getEmployees, getLeaveApplications, getPerformanceReviews,
-  getDepartments, getLeaveBalance, getGoals,
+  getDepartments,
 } from '../../store/dataStore';
 
 export default function HRDashboard() {
@@ -20,17 +19,19 @@ export default function HRDashboard() {
   const departments = getDepartments();
   const allLeaves = getLeaveApplications({});
   const allReviews = getPerformanceReviews({});
-  const allGoals = getGoals({});
 
   const pendingLeaves = allLeaves.filter(l => l.status === 'pending');
   const approvedToday = allLeaves.filter(l => l.status === 'approved' && l.fromDate <= today && l.toDate >= today);
   const pendingReviews = allReviews.filter(r => r.status === 'submitted');
 
   // Dept headcount
-  const deptBreakdown = useMemo(() => departments.map(d => ({
-    ...d,
-    count: activeEmps.filter(e => e.departmentId === d.id).length,
-  })).filter(d => d.count > 0).sort((a, b) => b.count - a.count), [activeEmps, departments]);
+  const deptBreakdown = departments
+    .map((d) => ({
+      ...d,
+      count: activeEmps.filter((e) => e.departmentId === d.id).length,
+    }))
+    .filter((d) => d.count > 0)
+    .sort((a, b) => b.count - a.count);
 
   // Recent leave applications
   const recentLeaves = [...allLeaves].reverse().slice(0, 6);

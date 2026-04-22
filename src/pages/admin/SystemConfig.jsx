@@ -1,13 +1,23 @@
 import { useState } from 'react';
-import { Plus, Trash2, Settings, Building2, Megaphone, Info } from 'lucide-react';
+import { Plus, Trash2, Settings, Building2, Megaphone, Info, Target } from 'lucide-react';
 import Layout from '../../components/Layout';
 import Modal from '../../components/Modal';
-import { getDepartments, getDesignations, addDepartment, addDesignation, getAnnouncements, addAnnouncement, removeAnnouncement } from '../../store/dataStore';
+import {
+  getDepartments,
+  getDesignations,
+  addDepartment,
+  addDesignation,
+  getAnnouncements,
+  addAnnouncement,
+  removeAnnouncement,
+  getReviewConfig,
+  setActiveReviewYear,
+} from '../../store/dataStore';
 
 export default function SystemConfig() {
   const [tab, setTab] = useState('departments');
   const [alert, setAlert] = useState(null);
-  const [refresh, setRefresh] = useState(0);
+  const [, setRefresh] = useState(0);
 
   const [deptName, setDeptName] = useState('');
   const [desName, setDesName] = useState('');
@@ -19,6 +29,15 @@ export default function SystemConfig() {
   const departments = getDepartments();
   const designations = getDesignations();
   const announcements = getAnnouncements();
+   const initialReviewConfig = getReviewConfig();
+   const [activeYear, setActiveYear] = useState(initialReviewConfig.activeYear || new Date().getFullYear());
+   const [availableYears, setAvailableYears] = useState(
+     (initialReviewConfig.years && initialReviewConfig.years.length > 0
+       ? [...initialReviewConfig.years]
+       : [activeYear]
+     ).sort()
+   );
+   const [newYear, setNewYear] = useState('');
 
   function showAlert(type, msg) { setAlert({ type, msg }); setTimeout(() => setAlert(null), 3000); }
 
@@ -55,13 +74,32 @@ export default function SystemConfig() {
     showAlert('info', 'Announcement deleted.');
   }
 
+  function handleAddYear() {
+    const yearNum = Number(newYear);
+    if (!yearNum || yearNum < 2000 || yearNum > 2100) { showAlert('error', 'Enter a valid review year (2000–2100).'); return; }
+    if (!availableYears.includes(yearNum)) {
+      const updated = [...availableYears, yearNum].sort();
+      setAvailableYears(updated);
+    }
+    setActiveYear(yearNum);
+    setActiveReviewYear(yearNum);
+    showAlert('success', `Active performance review year set to ${yearNum}.`);
+    setNewYear('');
+  }
+
+  function handleChangeActiveYear(yearNum) {
+    setActiveYear(yearNum);
+    setActiveReviewYear(yearNum);
+    showAlert('success', `Active performance review year set to ${yearNum}.`);
+  }
+
   return (
     <Layout title="System Configuration">
       {alert && <div className={`alert alert-${alert.type}`}>{alert.msg}</div>}
       <div className="page-header">
         <div className="page-header-left">
           <h1>System Configuration</h1>
-          <p>Manage departments, designations, and company announcements</p>
+          <p>Manage departments, designations, performance cycles, and company announcements</p>
         </div>
         {tab === 'announcements' && (
           <button className="btn btn-primary" onClick={() => setShowAnn(true)}><Plus size={15} /> New Announcement</button>
@@ -69,7 +107,7 @@ export default function SystemConfig() {
       </div>
 
       <div className="tabs">
-        {[['departments', 'Departments & Designations'], ['announcements', 'Announcements'], ['audit', 'Audit Log']].map(([v, l]) => (
+        {[['departments', 'Departments & Designations'], ['reviews', 'Performance Review Cycles'], ['announcements', 'Announcements'], ['audit', 'Audit Log']].map(([v, l]) => (
           <button key={v} className={`tab-btn ${tab === v ? 'active' : ''}`} onClick={() => setTab(v)}>{l}</button>
         ))}
       </div>
@@ -177,6 +215,57 @@ export default function SystemConfig() {
               <div style={{ fontSize: 11.5, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{log.time}</div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Performance review cycles */}
+      {tab === 'reviews' && (
+        <div className="card">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+            <Target size={16} color="var(--accent-light)" />
+            <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-1)' }}>Performance Review Cycles</div>
+          </div>
+          <p style={{ fontSize: 13, color: 'var(--text-3)', marginBottom: 16 }}>
+            Configure the active financial year used for employee self-reviews, manager feedback, and HR performance reports.
+          </p>
+
+          <div className="grid-2" style={{ gap: 18 }}>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-3)', marginBottom: 8 }}>Active Review Year</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                <select
+                  className="form-select"
+                  style={{ maxWidth: 180 }}
+                  value={activeYear}
+                  onChange={e => handleChangeActiveYear(Number(e.target.value))}
+                >
+                  {availableYears.map(y => (
+                    <option key={y} value={y}>{y}</option>
+                  ))}
+                </select>
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                This year will appear as the <strong>Current Year</strong> on performance review screens and HR performance overview.
+              </div>
+            </div>
+
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-3)', marginBottom: 8 }}>Add Review Year</div>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                <input
+                  className="form-input"
+                  type="number"
+                  placeholder="e.g. 2027"
+                  value={newYear}
+                  onChange={e => setNewYear(e.target.value)}
+                />
+                <button className="btn btn-primary btn-sm" onClick={handleAddYear}><Plus size={14} /></button>
+              </div>
+              <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+                Add a new financial year and optionally make it the active review year at the same time.
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

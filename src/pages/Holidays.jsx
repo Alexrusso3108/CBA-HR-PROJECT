@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
 import Layout from '../components/Layout';
 import { getHolidays } from '../store/dataStore';
@@ -14,18 +14,14 @@ export default function Holidays() {
 
   const yearHolidays = holidays.filter(h => new Date(h.date).getFullYear() === viewYear);
   const upcoming = yearHolidays.filter(h => new Date(h.date) >= today);
-  const past = yearHolidays.filter(h => new Date(h.date) < today);
   const holidayDateSet = new Set(yearHolidays.map(h => h.date));
 
-  const byMonth = useMemo(() => {
-    const map = {};
-    yearHolidays.forEach(h => {
-      const m = new Date(h.date).getMonth();
-      if (!map[m]) map[m] = [];
-      map[m].push(h);
-    });
-    return map;
-  }, [yearHolidays]);
+  const byMonth = {};
+  yearHolidays.forEach((h) => {
+    const m = new Date(h.date).getMonth();
+    if (!byMonth[m]) byMonth[m] = [];
+    byMonth[m].push(h);
+  });
 
   return (
     <Layout title="Holiday Calendar">

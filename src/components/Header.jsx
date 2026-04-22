@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Bell, CalendarDays, Star, Megaphone, Settings } from 'lucide-react';
+import { Bell, CalendarDays, Star, Megaphone, Settings, Gift, Award } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { markNotificationRead, markAllNotificationsRead, getNotifications } from '../store/dataStore';
 import Avatar from './Avatar';
@@ -16,8 +16,11 @@ const NOTIF_ICONS = {
   leave_applied: { icon: CalendarDays, bg: '#eef2ff', color: '#4f46e5' },
   leave_approved: { icon: CalendarDays, bg: '#f0fdf4', color: '#10b981' },
   leave_rejected: { icon: CalendarDays, bg: '#fff5f5', color: '#ef4444' },
+  leave_revoked: { icon: CalendarDays, bg: '#fef2f2', color: '#b91c1c' },
   review_submitted: { icon: Star, bg: '#fffbeb', color: '#f59e0b' },
   review_feedback: { icon: Star, bg: '#f0f9ff', color: '#0ea5e9' },
+  birthday_reminder: { icon: Gift, bg: '#fdf2ff', color: '#db2777' },
+  anniversary_reminder: { icon: Award, bg: '#ecfdf5', color: '#16a34a' },
   announcement: { icon: Megaphone, bg: '#f5f3ff', color: '#7c3aed' },
   system: { icon: Settings, bg: '#f8fafc', color: '#64748b' },
 };
@@ -26,11 +29,7 @@ export default function Header({ title }) {
   const { user, unreadCount, refreshNotifications } = useAuth();
   const [showNotif, setShowNotif] = useState(false);
   const panelRef = useRef(null);
-  const [notifs, setNotifs] = useState([]);
-
-  useEffect(() => {
-    if (showNotif) setNotifs(getNotifications(user.id));
-  }, [showNotif, user.id]);
+  const notifs = showNotif ? getNotifications(user.id) : [];
 
   useEffect(() => {
     function handleClick(e) {
@@ -42,14 +41,12 @@ export default function Header({ title }) {
 
   function handleMarkAll() {
     markAllNotificationsRead(user.id);
-    setNotifs(getNotifications(user.id));
     refreshNotifications();
   }
 
   function handleNotifClick(n) {
     if (!n.read) {
       markNotificationRead(n.id);
-      setNotifs(getNotifications(user.id));
       refreshNotifications();
     }
   }

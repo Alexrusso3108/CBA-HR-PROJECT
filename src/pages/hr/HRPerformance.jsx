@@ -3,7 +3,7 @@ import { TrendingUp, Star, Target, Users, FileText, Award } from 'lucide-react';
 import Layout from '../../components/Layout';
 import Avatar from '../../components/Avatar';
 import Badge from '../../components/Badge';
-import { getEmployees, getDepartments, getPerformanceReviews, getGoals, getLeaveApplications } from '../../store/dataStore';
+import { getEmployees, getDepartments, getPerformanceReviews, getGoals, getLeaveApplications, getReviewConfig } from '../../store/dataStore';
 
 function StarRow({ value, max = 5 }) {
   return (
@@ -23,7 +23,8 @@ export default function HRPerformance() {
   const allGoals = getGoals({});
   const allLeaves = getLeaveApplications({});
 
-  const YEAR = new Date().getFullYear();
+  const reviewConfig = getReviewConfig();
+  const YEAR = reviewConfig.activeYear || new Date().getFullYear();
 
   const empData = useMemo(() => employees.map(e => {
     const reviews = allReviews.filter(r => r.employeeId === e.id);
@@ -33,7 +34,7 @@ export default function HRPerformance() {
     const avgGoalPct = goals.length ? Math.round(goals.reduce((a, g) => a + g.progress, 0) / goals.length) : 0;
     const dept = departments.find(d => d.id === e.departmentId);
     return { ...e, reviews, goals, currentReview, leaves, avgGoalPct, dept };
-  }), [employees, allReviews, allGoals, allLeaves, departments]);
+  }), [employees, allReviews, allGoals, allLeaves, departments, YEAR]);
 
   const totalReviews = allReviews.length;
   const pendingFeedback = allReviews.filter(r => r.status === 'submitted').length;

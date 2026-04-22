@@ -4,7 +4,7 @@ import Layout from '../components/Layout';
 import Modal from '../components/Modal';
 import Badge from '../components/Badge';
 import { useAuth } from '../context/AuthContext';
-import { getPerformanceReviews, submitPerformanceReview } from '../store/dataStore';
+import { getPerformanceReviews, submitPerformanceReview, getReviewConfig } from '../store/dataStore';
 
 function StarRating({ value, onChange, max = 5 }) {
   const [hover, setHover] = useState(0);
@@ -22,7 +22,55 @@ function StarRating({ value, onChange, max = 5 }) {
   );
 }
 
-const YEAR = new Date().getFullYear();
+function ReviewCard({ review }) {
+  return (
+    <div className="card" style={{ marginBottom: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+        <div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-1)' }}>Performance Review {review.year}</div>
+          <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>Submitted: {review.submittedOn}</div>
+        </div>
+        <Badge status={review.status} />
+      </div>
+
+      <div className="grid-2" style={{ gap: 16, marginBottom: 16 }}>
+        {[
+          { label: 'Key Deliverables', value: review.deliverables },
+          { label: 'Accomplishments', value: review.accomplishments },
+          { label: 'Areas of Improvement', value: review.improvements },
+        ].map((f) => (
+          <div key={f.label} style={{ padding: '14px 16px', background: 'var(--bg-surface)', borderRadius: 10 }}>
+            <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-3)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>{f.label}</div>
+            <div style={{ fontSize: 13.5, color: 'var(--text-1)', lineHeight: 1.6 }}>{f.value}</div>
+          </div>
+        ))}
+        <div style={{ padding: '14px 16px', background: 'var(--bg-surface)', borderRadius: 10 }}>
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-3)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>Self Rating</div>
+          <StarRating value={review.selfRating} max={5} />
+        </div>
+      </div>
+
+      {review.managerFeedback && (
+        <div style={{ padding: '16px 18px', background: 'rgba(108,99,255,0.08)', border: '1px solid rgba(108,99,255,0.2)', borderRadius: 10 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent-light)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <CheckCircle size={14} /> Manager Feedback
+            {review.reviewedOn && <span style={{ fontWeight: 400, color: 'var(--text-3)', marginLeft: 4 }}>· {review.reviewedOn}</span>}
+          </div>
+          <div style={{ fontSize: 13.5, color: 'var(--text-1)', lineHeight: 1.6, marginBottom: 10 }}>{review.managerFeedback}</div>
+          {review.managerRating && (
+            <div>
+              <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 4 }}>Manager Rating</div>
+              <StarRating value={review.managerRating} max={5} />
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const REVIEW_CONFIG = getReviewConfig();
+const YEAR = REVIEW_CONFIG.activeYear || new Date().getFullYear();
 const emptyForm = { deliverables: '', accomplishments: '', improvements: '', selfRating: 0, year: YEAR };
 
 export default function PerformanceReview() {
@@ -31,7 +79,7 @@ export default function PerformanceReview() {
   const [showSubmit, setShowSubmit] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [formError, setFormError] = useState('');
-  const [refresh, setRefresh] = useState(0);
+  const [, setRefresh] = useState(0);
   const [alert, setAlert] = useState(null);
 
   const allReviews = getPerformanceReviews({ employeeId: user.id });
@@ -58,53 +106,6 @@ export default function PerformanceReview() {
     setShowSubmit(false);
     setRefresh(r => r + 1);
     showAlert('success', 'Performance review submitted successfully!');
-  }
-
-  function ReviewCard({ review }) {
-    return (
-      <div className="card" style={{ marginBottom: 20 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-          <div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-1)' }}>Performance Review {review.year}</div>
-            <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>Submitted: {review.submittedOn}</div>
-          </div>
-          <Badge status={review.status} />
-        </div>
-
-        <div className="grid-2" style={{ gap: 16, marginBottom: 16 }}>
-          {[
-            { label: 'Key Deliverables', value: review.deliverables },
-            { label: 'Accomplishments', value: review.accomplishments },
-            { label: 'Areas of Improvement', value: review.improvements },
-          ].map(f => (
-            <div key={f.label} style={{ padding: '14px 16px', background: 'var(--bg-surface)', borderRadius: 10 }}>
-              <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-3)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>{f.label}</div>
-              <div style={{ fontSize: 13.5, color: 'var(--text-1)', lineHeight: 1.6 }}>{f.value}</div>
-            </div>
-          ))}
-          <div style={{ padding: '14px 16px', background: 'var(--bg-surface)', borderRadius: 10 }}>
-            <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-3)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>Self Rating</div>
-            <StarRating value={review.selfRating} max={5} />
-          </div>
-        </div>
-
-        {review.managerFeedback && (
-          <div style={{ padding: '16px 18px', background: 'rgba(108,99,255,0.08)', border: '1px solid rgba(108,99,255,0.2)', borderRadius: 10 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent-light)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <CheckCircle size={14} /> Manager Feedback
-              {review.reviewedOn && <span style={{ fontWeight: 400, color: 'var(--text-3)', marginLeft: 4 }}>· {review.reviewedOn}</span>}
-            </div>
-            <div style={{ fontSize: 13.5, color: 'var(--text-1)', lineHeight: 1.6, marginBottom: 10 }}>{review.managerFeedback}</div>
-            {review.managerRating && (
-              <div>
-                <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 4 }}>Manager Rating</div>
-                <StarRating value={review.managerRating} max={5} />
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    );
   }
 
   return (

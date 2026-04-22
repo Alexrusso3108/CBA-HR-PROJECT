@@ -1,10 +1,24 @@
-import { useState } from 'react';
+import { useState, createElement } from 'react';
 import { User, Phone, MapPin, Heart, Lock, Save, Edit2, Shield } from 'lucide-react';
 import Layout from '../components/Layout';
 import Avatar from '../components/Avatar';
 import Modal from '../components/Modal';
 import { useAuth } from '../context/AuthContext';
 import { updateEmployee, changePassword, getDepartments, getDesignations, getEmployee } from '../store/dataStore';
+
+function InfoRow({ icon, label, value, color = 'var(--accent-light)' }) {
+  return (
+    <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start', padding: '14px 0', borderBottom: '1px solid var(--border)' }}>
+      <div style={{ width: 36, height: 36, borderRadius: 8, background: `${color}18`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 }}>
+        {createElement(icon, { size: 16, color })}
+      </div>
+      <div>
+        <div style={{ fontSize: 11.5, color: 'var(--text-3)', fontWeight: 600, marginBottom: 2 }}>{label}</div>
+        <div style={{ fontSize: 14, color: 'var(--text-1)', fontWeight: 500 }}>{value || '—'}</div>
+      </div>
+    </div>
+  );
+}
 
 export default function Profile() {
   const { user, refreshUser } = useAuth();
@@ -45,20 +59,6 @@ export default function Profile() {
     setPwdSuccess('Password changed successfully!');
     setPwdForm({ current: '', next: '', confirm: '' });
     setTimeout(() => { setShowPwd(false); setPwdSuccess(''); }, 2000);
-  }
-
-  function InfoRow({ icon: Icon, label, value, color = 'var(--accent-light)' }) {
-    return (
-      <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start', padding: '14px 0', borderBottom: '1px solid var(--border)' }}>
-        <div style={{ width: 36, height: 36, borderRadius: 8, background: `${color}18`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 }}>
-          <Icon size={16} color={color} />
-        </div>
-        <div>
-          <div style={{ fontSize: 11.5, color: 'var(--text-3)', fontWeight: 600, marginBottom: 2 }}>{label}</div>
-          <div style={{ fontSize: 14, color: 'var(--text-1)', fontWeight: 500 }}>{value || '—'}</div>
-        </div>
-      </div>
-    );
   }
 
   return (

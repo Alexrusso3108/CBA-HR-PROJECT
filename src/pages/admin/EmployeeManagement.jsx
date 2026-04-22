@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Edit2, Power, Search, AlertCircle, UserCheck, UserX } from 'lucide-react';
+import { Plus, Edit2, Search, AlertCircle, UserCheck, UserX } from 'lucide-react';
 import Layout from '../../components/Layout';
 import Modal from '../../components/Modal';
 import Badge from '../../components/Badge';
@@ -22,7 +22,7 @@ export default function EmployeeManagement() {
   const [form, setForm] = useState(emptyForm);
   const [formError, setFormError] = useState('');
   const [alert, setAlert] = useState(null);
-  const [refresh, setRefresh] = useState(0);
+  const [, setRefresh] = useState(0);
   const [tab, setTab] = useState('active');
 
   const departments = getDepartments();

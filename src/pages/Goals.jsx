@@ -65,7 +65,7 @@ export default function Goals() {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [formError, setFormError] = useState('');
-  const [refresh, setRefresh] = useState(0);
+  const [, setRefresh] = useState(0);
   const [alert, setAlert] = useState(null);
 
   const goals = getGoals({ employeeId: user.id });

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import { Search, Users, Building } from 'lucide-react';
 import Layout from '../../components/Layout';
 import Avatar from '../../components/Avatar';
@@ -22,14 +22,14 @@ export default function HREmployees() {
   const desName = id => designations.find(d => d.id === id)?.name || '—';
   const mgrName = id => employees.find(e => e.id === id)?.name || '—';
 
-  const filtered = useMemo(() => employees.filter(e => {
+  const filtered = employees.filter((e) => {
     const matchStatus = tab === 'active' ? e.status === 'active' : e.status === 'inactive';
     const s = search.toLowerCase();
     const matchSearch = !search || e.name.toLowerCase().includes(s) || e.id.toLowerCase().includes(s) || e.email.toLowerCase().includes(s);
     const matchDept = !filterDept || e.departmentId === filterDept;
     const matchRole = !filterRole || e.role === filterRole;
     return matchStatus && matchSearch && matchDept && matchRole;
-  }), [employees, tab, search, filterDept, filterRole]);
+  });
 
   const activeCount = employees.filter(e => e.status === 'active').length;
   const inactiveCount = employees.filter(e => e.status === 'inactive').length;

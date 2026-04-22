@@ -5,7 +5,7 @@ import Modal from '../../components/Modal';
 import Badge from '../../components/Badge';
 import Avatar from '../../components/Avatar';
 import { useAuth } from '../../context/AuthContext';
-import { getTeamMembers, getPerformanceReviews, getGoals, submitManagerReview } from '../../store/dataStore';
+import { getTeamMembers, getPerformanceReviews, getGoals, submitManagerReview, getReviewConfig } from '../../store/dataStore';
 
 function StarRating({ value, onChange, max = 5 }) {
   const [hover, setHover] = useState(0);
@@ -30,13 +30,15 @@ export default function TeamPerformance() {
   const [rating, setRating] = useState(0);
   const [formError, setFormError] = useState('');
   const [alert, setAlert] = useState(null);
-  const [refresh, setRefresh] = useState(0);
+  const [, setRefresh] = useState(0);
   const [activeEmp, setActiveEmp] = useState(null);
 
   const team = getTeamMembers(user.id);
   const teamIds = team.map(e => e.id);
   const allReviews = getPerformanceReviews({ teamIds });
   const allGoals = getGoals({ teamIds });
+  const reviewConfig = getReviewConfig();
+  const activeYear = reviewConfig.activeYear || new Date().getFullYear();
 
   function showAlert(type, msg) { setAlert({ type, msg }); setTimeout(() => setAlert(null), 3500); }
 
@@ -66,7 +68,7 @@ export default function TeamPerformance() {
       <div className="page-header">
         <div className="page-header-left">
           <h1>Team Performance Reviews</h1>
-          <p>Review and provide feedback on your team's performance</p>
+          <p>Review and provide feedback on your team&apos;s performance (FY {activeYear})</p>
         </div>
       </div>
 
